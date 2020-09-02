@@ -10,3 +10,6 @@ across multiple Mailchimp accounts and with Interests as Subgroups.
 
 - [**GroupMe Sync**](groupme) - GroupMe is where all the cool kids are -- or so says our College Ministry.  Sync ministry 
 GroupMes with TouchPoint Organizations. 
+
+- [**Top Content Widget**](topContentWidget) - We have an extensive resource library on our website.  This widget shows on
+the TouchPoint homepage/dashboard which resources have been most popular in the last week. 
