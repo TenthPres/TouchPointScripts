@@ -39,7 +39,10 @@ SELECT
     cf.FundIncomeFund * 1 as Account,
     cf.FundIncomeAccount * 1 as IncomeAccount,
     cf.FundIncomeDept * 1 as Department,
+
+/* The Project code for the "Project of the Month" is computed on the next line */
     MIN(DATEPART(yy, c.ContributionDate) * 100 + DATEPART(mm, c.ContributionDate)) AS Project
+
 FROM Contribution AS c
     LEFT JOIN ContributionFund AS cf on c.FundId = cf.FundId
     LEFT JOIN BundleDetail AS bd on bd.ContributionId = c.ContributionId
