@@ -11,8 +11,10 @@ AcctTwo, our accounting firm.
 - [**Mailchimp Sync**](Mailchimp) - Sync Mailchimp subscribers both ways (from Mailchimp to TouchPoint and vice versa), 
 across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Subgroups.
 
-- [**GroupMe Sync**](GroupMe) - GroupMe is where all the cool kids are -- or so says our College Ministry.  Sync ministry 
-GroupMe groups with TouchPoint Organizations. 
+- [**Email Address Archiving**](EmailAddressArchiving) - TouchPoint can only store two email addresses per user.  While most
+people probably only use one or two email addresses at a time, it can be helpful to keep track of all of the email addresses
+someone uses across time.  This script allows many more email addresses to be immutably associated with a person's record,
+making future data imports significantly less likely to produce duplicates. 
 
 - [**Top Content Widget**](TopContentWidget) - We have an extensive resource library on our website.  This widget shows on
 the TouchPoint homepage/dashboard which resources have been most popular in the last week. 
