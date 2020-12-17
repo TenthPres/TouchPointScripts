@@ -1,4 +1,4 @@
-# TouchPoint-MailChimp
+# Advanced TouchPoint-Mailchimp Sync
 Import several MailChimp lists from several separate accounts into TouchPoint and keep them in sync.  
 
 This is different from [TouchPoint's MailChimp SQL recipes](https://docs.touchpointsoftware.com/EmailTexting/MailChimpIntegration.html) in three primary ways:
