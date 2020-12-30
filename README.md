@@ -9,6 +9,9 @@ someone uses across time.  This script allows many more email addresses to be im
 making future data imports significantly less likely to produce duplicates.  This script is strongly encouraged for the 
 Mailchimp and ConstantContact integrations. 
 
+- [**Role Checker**](RoleChecker) - Automatically update the roles users have as part of the Morning Batch process.  While
+this doesn't remotely handle all the roles, it does handle those that are most important for us and most likely to change.
+
 - [**Sage Intacct**](SageIntacct) - Create a reconciliation report that readily imports into Sage Intacct, as required by
 AcctTwo, our accounting firm. 
 
