@@ -1,7 +1,11 @@
 # TouchPointScripts
-This is a collection of scripts, widgets, and other handy bits for use with TouchPoint Software, our ChMS. 
+This is a collection of scripts, widgets, and other handy bits for use with TouchPoint Software, the Church Management 
+System we call "MyTenth." 
 
 ## Tools Available Now
+
+- [**ChangeLog**](ChangeLog) - This report lists the most recent changes made to a Person or Family.  It shows the person 
+making the change, the person to whom the change was made, and the content of the changes.
 
 - [**Email Address Archiving**](EmailAddressArchiving) - TouchPoint can only store two email addresses per user.  While most
 people probably only use one or two email addresses at a time, it can be helpful to keep track of all of the email addresses
@@ -20,5 +24,5 @@ AcctTwo, our accounting firm.
 - [**Mailchimp Sync**](Mailchimp) - Sync Mailchimp subscribers both ways (from Mailchimp to TouchPoint and vice versa), 
 across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Subgroups.
 
-- [**Top Content Widget**](TopContentWidget) - We have an extensive resource library on our website.  This widget shows on
-the TouchPoint homepage/dashboard which resources have been most popular in the last week. 
+- [**ConstantContact Sync**](ConstantContact) - Sync ConstantContact subscribers both ways (from ConstantContact to 
+TouchPoint and vice versa). 
