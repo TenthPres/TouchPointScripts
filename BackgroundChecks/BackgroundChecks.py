@@ -1,9 +1,9 @@
-import model
-import q
-
 import clr
-from System import DateTime
+from System import DateTime, String, Convert
+from System.Text.RegularExpressions import Regex, RegexOptions
 from pprint import pprint
+
+global q, model
 
 checkCode = "ComboPS"
 employeeOrgId = 61
@@ -15,9 +15,7 @@ class BackgroundChecker:
         'CHECK_STARTED': 1,
         'CHECK_COMPLETE': 2,
         'REVIEW_COMPLETE': 4,
-        'PASSED': 8,
-        'CURRENT': 16,
-        'NOT_EXPR_SOON': 32
+        'PASSED': 8
     }
     Expirations = {
         'basic': DateTime.Now.AddMonths(-12),
@@ -38,8 +36,24 @@ class BackgroundChecker:
 
     def __init__(self, pid=model.UserPeopleId):
         self.person = model.GetPerson(pid)
-        self.status_set = False
-        self.status = {
+        self.statusSet = False
+        self.statusCur = {  # Current status
+            'basic': 0,
+            'paVol': 0,
+            'paEmp': 0,
+            'affid': 0,
+            'fingr': 0,
+            'isMin': 0
+        }
+        self.statusExp = {  # Status if items needing renewal are allowed to expire.
+            'basic': 0,
+            'paVol': 0,
+            'paEmp': 0,
+            'affid': 0,
+            'fingr': 0,
+            'isMin': 0
+        }
+        self.statusHis = {  # Historical Status (effectively, collection of all checks)
             'basic': 0,
             'paVol': 0,
             'paEmp': 0,
@@ -52,133 +66,173 @@ class BackgroundChecker:
         self.determine_status()
         for_employment = not not for_employment
         items = []
+        eligibleForSubmission = True
 
         # get minors out of the way
-        if not for_employment and (self.status['isMin'] & 32 == 32):
+        if not for_employment and (self.statusExp['isMin'] & 8 == 8):
             return items  # if the subject is a minor not looking for employment, they need nothing.
 
         # Bio: Full Name, Email, etc.
-        if ((for_employment and self.status['paEmp'] & 32 == 0) or
-                self.status['paVol'] & 32 == 0 or
-                self.status['basic'] & 32 == 0):
-            items.append("Bio")
+        if (
+                String.IsNullOrEmpty(self.person.FirstName) or
+                String.IsNullOrEmpty(self.person.LastName) or
+                (self.person.GenderId != 1 and self.person.GenderId != 2) or
+                int(self.person.BirthYear) < 1900
+        ) and (
+                (for_employment and self.statusExp['paEmp'] & 8 == 0) or
+                self.statusExp['paVol'] & 8 == 0 or
+                self.statusExp['basic'] & 8 == 0):
+            items.append('Bio')
+            eligibleForSubmission = False
 
         # SSN
-        if (self.person.SSN.IsNotNull() and (  # TODO check the logic here.
-                for_employment and self.status['paEmp'] & 32 == 0) or
-                self.status['paVol'] & 32 == 0 or
-                self.status['basic'] & 32 == 0):
-            items.append("SSN")
+        if String.IsNullOrEmpty(self.person.Ssn) and (
+                (for_employment and self.statusExp['paEmp'] & 8 == 0) or
+                self.statusExp['paVol'] & 8 == 0 or
+                self.statusExp['basic'] & 8 == 0):
+            items.append('Ssn')
+            eligibleForSubmission = False
 
-        # Submission  TODO this needs to be reworked because if an expiring cert is present, this won't work.
-        if for_employment and self.status['paEmp'] & 1 == 0:
+        # PMM Submission
+        if eligibleForSubmission and for_employment and self.statusExp['paEmp'] & 1 == 0:
             items.append("submit_emp")
-        elif self.status['paVol'] & 1 == 0:
+        elif eligibleForSubmission and self.statusExp['paVol'] & 1 == 0:
             items.append("submit_vol")
-        elif self.status['basic'] & 1 == 0:
+        elif eligibleForSubmission and self.statusExp['basic'] & 1 == 0:
             items.append("submit_basic")
 
-        # Completion Actions  TODO this needs to be reworked because if an expiring cert is present, this won't work.
-        if for_employment and self.status['paEmp'] & 1 == 1 and self.status['paEmp'] & 2 == 0:
+        # PMM Completion Actions
+        if for_employment and self.statusExp['paEmp'] & 1 == 1 and self.statusExp['paEmp'] & 2 == 0:
             items.append("receive_emp")
-        elif self.status['paVol'] & 1 == 1 and self.status['paVol'] & 2 == 0:
+        elif self.statusExp['paVol'] & 1 == 1 and self.statusExp['paVol'] & 2 == 0:
             items.append("receive_vol")
-        elif self.status['basic'] & 1 == 1 and self.status['basic'] & 2 == 0:
+        elif self.statusExp['basic'] & 1 == 1 and self.statusExp['basic'] & 2 == 0:
             items.append("receive_basic")
+
+        # PMM Review Actions
+        if for_employment and self.statusExp['paEmp'] & 2 == 2 and self.statusExp['paEmp'] & 4 == 0:
+            items.append("review_emp")
+        elif self.statusExp['paVol'] & 2 == 2 and self.statusExp['paVol'] & 4 == 0:
+            items.append("review_vol")
+        elif self.statusExp['basic'] & 2 == 2 and self.statusExp['basic'] & 4 == 0:
+            items.append("review_bas")
+
+        # FBI or Affidavit Submission
+        if for_employment and self.statusExp['fingr'] & 2 == 0:
+            items.append("submit_fbi")
+        elif not for_employment and self.statusExp['fingr'] & 2 == 0 and self.statusExp['affid'] & 2 == 0:
+            items.append("submit_fbi_aff")
+
+        # FBI or Affid Approval TODO
 
         return items
 
     def can_employ(self):
         self.determine_status()
-        return (self.status_employ() & 31) == 31
+        return (self.status_employ() & 15) == 15
 
     def status_employ(self):
         self.determine_status()
-        return self.status['basic'] & self.status['paEmp'] & self.status['fingr']
+        return self.statusCur['basic'] & self.statusCur['paEmp'] & self.statusCur['fingr']
 
     def can_volunteer(self):
         self.determine_status()
-        return (self.status_volunteer() & 31) == 31
+        return (self.status_volunteer() & 15) == 15
 
     def status_volunteer(self):
-        return (self.status['basic'] & self.status['paVol'] & (self.status['affid'] | self.status['fingr'])) | \
-               self.status['isMin']
+        self.determine_status()
+        return (self.statusCur['basic'] & self.statusCur['paVol'] & \
+                (self.statusCur['affid'] | self.statusCur['fingr'])) | \
+               self.statusCur['isMin']
 
     def determine_status(self):
-        if self.status_set:
+        if self.statusSet:
             return
 
+        # PMM CHECKS
         checks_sql = "SELECT TOP 20 * FROM [BackgroundChecks] WHERE [PeopleId] = @p1 AND DATEDIFF(DAY, DATEADD(YEAR, -10, GETDATE()), [Updated]) > 0 ORDER BY [Updated] DESC".format(
             self.person.PeopleId)
         for check in q.QuerySql(checks_sql, self.person.PeopleId):
-            if check.ServiceCode == "ComboPS":
-                # Basic + PA Volunteer + (maybe) PA Employee (PA Employee fulfills PA Volunteer)
+            check_status = 0
 
-                validForEmp = DateTime.Compare(check.Updated, self.Expirations['paVol']) > 0 and (
-                        check.ReportLabelID == 1)
-                validForVol = DateTime.Compare(check.Updated, self.Expirations['paEmp']) > 0
+            if check.StatusID >= 2:  # Check has begun
+                check_status = check_status | self.Statuses['CHECK_STARTED']
 
-                if check.StatusID >= 2:  # Check has been triggered.
-                    if validForVol:
-                        self.status['paVol'] = self.status['paVol'] | self.Statuses['CHECK_STARTED']
-                    if validForEmp:
-                        self.status['paEmp'] = self.status['paEmp'] | self.Statuses['CHECK_STARTED']
-
-                    # Check if expiring soon
-                    if DateTime.Compare(check.Updated, self.Renewals['paVol']) > 0 and validForVol:
-                        self.status['paVol'] = self.status['paVol'] | self.Statuses['NOT_EXPR_SOON']
-                    if DateTime.Compare(check.Updated, self.Renewals['paEmp']) > 0 and validForEmp:
-                        self.status['paEmp'] = self.status['paEmp'] | self.Statuses['NOT_EXPR_SOON']
-
-                if check.StatusID == 3:
-                    if validForVol:
-                        self.status['paVol'] = self.status['paVol'] | self.Statuses['CHECK_COMPLETE'] | self.Statuses[
-                            'CURRENT']
-                    if validForEmp:
-                        self.status['paEmp'] = self.status['paEmp'] | self.Statuses['CHECK_COMPLETE'] | self.Statuses[
-                            'CURRENT']
+                if check.StatusID == 3:  # Check is complete
+                    check_status = check_status | self.Statuses['CHECK_COMPLETE']
 
                     if check.IssueCount == 0:
-                        if validForVol:
-                            self.status['paVol'] = self.status['paVol'] | self.Statuses['REVIEW_COMPLETE'] | \
-                                                   self.Statuses['PASSED']
-                        if validForEmp:
-                            self.status['paEmp'] = self.status['paEmp'] | self.Statuses['REVIEW_COMPLETE'] | \
-                                                   self.Statuses['PASSED']
-
+                        check_status = check_status | self.Statuses['REVIEW_COMPLETE'] | self.Statuses['PASSED']
                     else:
-                        print "This program does not yet handle checks with issues."  # TODO
+                        check_status = check_status | self.Statuses['REVIEW_COMPLETE']
+                        # TODO: Can this pass if there are issues?
+
+            if check.ServiceCode == "ComboPS" and check.ReportLabelID == 1:
+                # PA Employee
+
+                self.statusHis['paEmp'] = self.statusHis['paEmp'] | check_status
+
+                if DateTime.Compare(check.Updated, self.Renewals['paEmp']) > 0:
+                    self.statusExp['paEmp'] = self.statusExp['paEmp'] | check_status
+
+                if DateTime.Compare(check.Updated, self.Expirations['paEmp']) > 0:
+                    self.statusCur['paEmp'] = self.statusCur['paEmp'] | check_status
+
+            if check.ServiceCode == "ComboPS":
+                # PA Volunteer
+
+                self.statusHis['paVol'] = self.statusHis['paVol'] | check_status
+
+                if DateTime.Compare(check.Updated, self.Renewals['paVol']) > 0:
+                    self.statusExp['paVol'] = self.statusExp['paVol'] | check_status
+
+                if DateTime.Compare(check.Updated, self.Expirations['paVol']) > 0:
+                    self.statusCur['paVol'] = self.statusCur['paVol'] | check_status
 
             if check.ServiceCode == "Combo" or check.ServiceCode == "ComboPS":
+                # Basic
 
-                # Check if expired
+                self.statusHis['basic'] = self.statusHis['basic'] | check_status
+
+                if DateTime.Compare(check.Updated, self.Renewals['basic']) > 0:
+                    self.statusExp['basic'] = self.statusExp['basic'] | check_status
+
                 if DateTime.Compare(check.Updated, self.Expirations['basic']) > 0:
+                    self.statusCur['basic'] = self.statusCur['basic'] | check_status
 
-                    if check.StatusID >= 2:  # Check has been triggered.
-                        self.status['basic'] = self.status['basic'] | self.Statuses['CHECK_STARTED']
-
-                        # Check if expiring soon
-                        if DateTime.Compare(check.Updated, self.Renewals['basic']) > 0:
-                            self.status['basic'] = self.status['basic'] | self.Statuses['NOT_EXPR_SOON']
-
-                    if check.StatusID == 3:
-                        self.status['basic'] = self.status['basic'] | self.Statuses['CHECK_COMPLETE'] | self.Statuses[
-                            'CURRENT']
-
-                        if check.IssueCount == 0:
-                            self.status['basic'] = self.status['basic'] | self.Statuses['REVIEW_COMPLETE']
-                            self.status['basic'] = self.status['basic'] | self.Statuses['PASSED']
-
-                        else:
-                            print "This program does not yet handle checks with issues."
-
+        # MINOR'S WAIVER
         if self.person.BirthDate > self.Expirations['isMin']:
-            self.status['isMin'] = self.Statuses['CHECK_STARTED'] | self.Statuses['CHECK_COMPLETE'] | self.Statuses[
-                'REVIEW_COMPLETE'] | self.Statuses['PASSED'] | self.Statuses['CURRENT']
-            if self.person.BirthDate > self.Renewals['isMin']:
-                self.status['isMin'] = self.status['isMin'] | self.Statuses['NOT_EXR_SOON']
+            self.statusCur['isMin'] = self.Statuses['CHECK_STARTED'] | self.Statuses['CHECK_COMPLETE'] | \
+                                      self.Statuses['REVIEW_COMPLETE'] | self.Statuses['PASSED']
+        if self.person.BirthDate > self.Renewals['isMin']:
+            self.statusExp['isMin'] = self.Statuses['CHECK_STARTED'] | self.Statuses['CHECK_COMPLETE'] | \
+                                      self.Statuses['REVIEW_COMPLETE'] | self.Statuses['PASSED']
 
-        self.status_set = True
+        # FBI Fingerprinting
+        for doc in self.person.VolunteerForms:
+            rx = Regex("(?<docType>\w+)\s+(?<date>[0-9]{1,2}/[0-9]{1,2}/[0-9]{4})",
+                       RegexOptions.Compiled | RegexOptions.IgnoreCase);
+            rm = rx.Match(doc.Name)
+
+            if not rm.Success:
+                continue;
+
+            if rm.Groups['docType'].Value.ToLower() == "fbi":
+                dt = Convert.ToDateTime(rm.Groups['date'].Value)
+
+                # TODO impose some form of verification here.
+                check_status = self.Statuses['CHECK_STARTED'] | self.Statuses['CHECK_COMPLETE'] | \
+                               self.Statuses['REVIEW_COMPLETE'] | self.Statuses['PASSED']
+
+                self.statusHis['fingr'] = self.statusHis['fingr'] | check_status
+
+                if DateTime.Compare(dt, self.Renewals['fingr']) > 0:
+                    self.statusExp['fingr'] = self.statusExp['fingr'] | check_status
+
+                if DateTime.Compare(dt, self.Expirations['fingr']) > 0:
+                    self.statusCur['fingr'] = self.statusCur['fingr'] | check_status
+
+        self.statusSet = True
 
 
 # DETERMINE WHAT TO SHOW
@@ -190,40 +244,59 @@ if model.Data.view == "list" and userPerson.Users[0].InRole('Admin'):
     model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; }</style>"
 
 
-    def statusToCell(status, mask):
+    def status_to_cell(status, mask):
         return "<td class=\"{}\">{}</td>".format(("y" if status & mask == mask else "n"),
                                                  ("Yes" if status & mask == mask else "No"))
 
 
-    def statusToRow(status):
+    def status_to_row(status):
         r = ""
-        r += statusToCell(status, 1)
-        r += statusToCell(status, 2)
-        r += statusToCell(status, 4)
-        r += statusToCell(status, 8)
-        r += statusToCell(status, 16)
-        r += statusToCell(status, 32)
+        r += status_to_cell(status, 1)
+        r += status_to_cell(status, 2)
+        r += status_to_cell(status, 4)
+        r += status_to_cell(status, 8)
         return r
 
 
     print "<table style=\"width:100%;\">"
-
     for p in q.QuerySql("SELECT [PeopleId] FROM [BackgroundChecks] GROUP BY [PeopleId]"):
         bgc = BackgroundChecker(p.PeopleId)
         print "<tr>"
-        print "<th colspan=4>{} {}</th>".format(bgc.person.PreferredName, bgc.person.LastName)
+        print "<th colspan=2>{} {}</th>".format(bgc.person.PreferredName, bgc.person.LastName)
         print "<td colspan=2>{}</td>".format("Employable" if bgc.can_employ() else "Not Employable")
         print "<td colspan=2>{}</td>".format("Volunteer" if bgc.can_volunteer() else "No Volunteering")
         print "</tr>"
 
-        print "<tr><td>&nbsp;&nbsp;&nbsp;</td><td>Check</td><td>Started</td><td>Complete</td><td>Reviewed</td><td>Passed</td><td>Not Expired</td><td>Not Expiring</td></tr>"
+        print "<tr><td colspan=2>Current</td><td>Started</td><td>Complete</td><td>Reviewed</td><td>Passed</td></tr>"
 
-        for ci in bgc.status:
+        for ci in bgc.statusCur:
             print "<tr>"
-            print "<td></td><td>{}</td>".format(ci)
-            print statusToRow(bgc.status[ci])
+            print "<td>&nbsp;&nbsp;&nbsp;</td><td>{}</td>".format(ci)
+            print status_to_row(bgc.statusCur[ci])
             print "</tr>"
 
+        print "<tr><td colspan=2>Expiring</td><td>Started</td><td>Complete</td><td>Reviewed</td><td>Passed</td></tr>"
+
+        for ci in bgc.statusExp:
+            print "<tr>"
+            print "<td>&nbsp;&nbsp;&nbsp;</td><td>{}</td>".format(ci)
+            print status_to_row(bgc.statusExp[ci])
+            print "</tr>"
+
+        print "<tr><td colspan=2>Historical</td><td>Started</td><td>Complete</td><td>Reviewed</td><td>Passed</td></tr>"
+
+        for ci in bgc.statusHis:
+            print "<tr>"
+            print "<td>&nbsp;&nbsp;&nbsp;</td><td>{}</td>".format(ci)
+            print status_to_row(bgc.statusHis[ci])
+            print "</tr>"
+
+        print "<tr><td colspan=2>To Volunteer:</td><td colspan=4>"
+        pprint(bgc.items_needed(False))
+        print "</td></tr>"
+        print "<tr><td colspan=2>For Employment:</td><td colspan=4>"
+        pprint(bgc.items_needed(True))
+        print "</td></tr>"
     print "</table>"
 
 elif model.HttpMethod == "get":
@@ -235,15 +308,67 @@ elif model.HttpMethod == "get":
 
     status = bgc.status_employ() if forEmployment else bgc.status_volunteer()
 
-    form = ""
+    print "<p>Thank you for serving at Tenth!  To protect our children, our other volunteers, and you, we require " \
+          "background checks of all staff members and adult volunteers who work with children.</p> "
 
-    if (status & 32) == 32:
-        form += "<p>No Updates are required.</p>"
+    if (status & 15) == 15:
+        print "<p><b>You are currently cleared to serve as {}.</b></p>".format(
+            "an employee" if forEmployment else "a volunteer")
 
     else:
-        form += "<p>We need to run an update.</p>"
+        print "<p><b>You are NOT currently cleared to serve as {}.</b></p>".format(
+            "an employee" if forEmployment else "a volunteer")
 
-    model.Form = form
+    to_do = bgc.items_needed(forEmployment)
+
+    if len(to_do) == 0:
+        print "<p>Your checks do not yet need renewal.  We will let you know when your action is required.</p>"
+    else:
+        print "<p>Your checks expire soon.  Please help us update them.</p>"
+
+        # TODO remove items of review_*
+
+        print "<ul>"
+        if 'Bio' in to_do:
+            print "<li><a href=\"/Person2/{}\">Click here to update your profile</a> to include your full name and " \
+                  "date of birth.</li>".format(bgc.person.PeopleId)
+
+        if 'Ssn' in to_do:
+            print "<li>Submit your Social Security Number to start the automated background check process.  By " \
+                  "submitting this form, you are giving Tenth permission to automatically run background checks on " \
+                  "you in accordance with our policies, for as long as you continue to serve with children at Tenth. "
+            print "<form method=\"POST\">"
+            print "<table><tbody>"
+            print "<tr><td><label for=\"ssn\">SSN</label></td><td><input type=\"password\" id=\"ssn\" " \
+                  "required=\"required\" name=\"ssn\" placeholder=\"000-00-0000\" maxlength=\"12\" pattern=\"[0-9]{" \
+                  "3}-[0-9]{2}-[0-9]{4}\" /></td></tr> "
+            print "</tbody></table>"
+            print "<input type=\"submit\" />"
+            print "</form>"
+            print "</li>"
+
+        if 'receive_emp' in to_do or 'receive_vol' in to_do:
+            print "<li>You should soon receive an email with instructions for how to complete the PA Child Abuse " \
+                  "History Clearance.  That email includes a code which you should use in place of payment, " \
+                  "and which ensures the clearance will come back to us. "
+            print "<a href=\"mailto:clearances@tenth.org\">Let us know if you haven't received it within a few " \
+                  "business days.</a>"  # TODO replace email with some kind of variable.
+            print "</li>"
+
+        if 'submit_fbi_aff' in to_do:
+            print "<li>We need your FBI Fingerprinting clearance or an affidavit.  <br />"
+            print "If you <b>have only lived in Pennsylvania within the last 10 years</b>, " \
+                  "<a href=\"?view=affid\">please click here to sign an affidavit</a>.<br /> "
+            print "If you <b>have lived outside Pennsylvania within the last 10 years</b>, we will need you to get an " \
+                  "FBI fingerprint check.  Click here for full instructions.  Once you receive your " \
+                  "certification in the mail, please scan it and upload it here. "
+            print "</li>"
+
+        if 'submit_fbi' in to_do:
+            print "<li>We need your FBI Fingerprinting clearance.  Click here for full instructions.  Once " \
+                  "you receive your certification via mail, please scan it and upload it here.</li> "
+
+        print "</ul>"
 
 # if (model.HttpMethod == "get"):
 #
@@ -284,7 +409,7 @@ elif model.HttpMethod == "get":
 #
 #     form += "<input type=\"submit\" />"
 #
-#     model.Form = form + "</form>"
+#     model.xForm = form + "</form>"
 #     model.Header = "New Background Check"
 #
 # else:
@@ -293,7 +418,7 @@ elif model.HttpMethod == "get":
 #
 #     print("<p>Thank you.  Your background check will be processed shortly.</p>")
 #
-#     # model.Form = model.JsonSerialize([])
+#     # model.xForm = model.JsonSerialize([])
 #
 #     # print(model.JsonSerialize(model))
 #
