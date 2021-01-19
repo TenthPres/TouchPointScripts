@@ -7,6 +7,15 @@ global q, model
 
 checkCode = "ComboPS"
 employeeOrgId = 61
+stateCode = "PA"
+
+people_needing_checks = '''
+    IsProspectOf( Org={0} ) = 1[True]
+    OR IsMemberOf( Org={0} ) = 1[True]
+    OR MemberTypeCodes( Div=19[Children's Bible School] ) IN ( {1} )
+    OR PmmBackgroundCheckStatus(  ) IN ( '0,Error', '1,Not Submitted', '2,Submitted', '3,Complete' )
+'''.format(employeeOrgId, ','.join(map(str, q.QuerySqlInts(
+    '''SELECT mt.Id FROM lookup.MemberType AS mt WHERE mt.AttendanceTypeId = 10'''))))  # TODO replace hard-coded values with generic versions
 
 
 class BackgroundChecker:
@@ -77,7 +86,7 @@ class BackgroundChecker:
                 String.IsNullOrEmpty(self.person.FirstName) or
                 String.IsNullOrEmpty(self.person.LastName) or
                 (self.person.GenderId != 1 and self.person.GenderId != 2) or
-                int(self.person.BirthYear) < 1900
+                self.person.BirthYear < 1900  # meant to detect if null
         ) and (
                 (for_employment and self.statusExp['paEmp'] & 8 == 0) or
                 self.statusExp['paVol'] & 8 == 0 or
@@ -141,7 +150,7 @@ class BackgroundChecker:
 
     def status_volunteer(self):
         self.determine_status()
-        return (self.statusCur['basic'] & self.statusCur['paVol'] & \
+        return (self.statusCur['basic'] & self.statusCur['paVol'] &
                 (self.statusCur['affid'] | self.statusCur['fingr'])) | \
                self.statusCur['isMin']
 
@@ -215,7 +224,7 @@ class BackgroundChecker:
             rm = rx.Match(doc.Name)
 
             if not rm.Success:
-                continue;
+                continue
 
             if rm.Groups['docType'].Value.ToLower() == "fbi":
                 dt = Convert.ToDateTime(rm.Groups['date'].Value)
@@ -259,7 +268,7 @@ if model.Data.view == "list" and userPerson.Users[0].InRole('Admin'):
 
 
     print "<table style=\"width:100%;\">"
-    for p in q.QuerySql("SELECT [PeopleId] FROM [BackgroundChecks] GROUP BY [PeopleId]"):
+    for p in q.QueryList(people_needing_checks):
         bgc = BackgroundChecker(p.PeopleId)
         print "<tr>"
         print "<th colspan=2>{} {}</th>".format(bgc.person.PreferredName, bgc.person.LastName)
@@ -302,7 +311,13 @@ if model.Data.view == "list" and userPerson.Users[0].InRole('Admin'):
 elif model.HttpMethod == "get":
     bgc = BackgroundChecker()
 
-    forEmployment = model.Data.emp != "" or model.InOrg(bgc.person.PeopleId, employeeOrgId)
+    forEmployment = model.Data.emp != "" or (q.QueryCount('''
+        (
+            IsMemberOf( Org={0} ) = 1
+            OR IsProspectOf( Org={0} ) = 1
+        )
+        AND PeopleId = {1}
+        '''.format(employeeOrgId, str(bgc.person.PeopleId))) > 0)
 
     model.Header = "Background Check (Employee)" if forEmployment else "Background Check (Volunteer)"
 
@@ -328,98 +343,101 @@ elif model.HttpMethod == "get":
 
         # TODO remove items of review_*
 
-        print "<ul>"
         if 'Bio' in to_do:
-            print "<li><a href=\"/Person2/{}\">Click here to update your profile</a> to include your full name and " \
-                  "date of birth.</li>".format(bgc.person.PeopleId)
+            print "<div class=\"well\"><a href=\"/Person2/{}\">Click here to update your profile</a> to include your full name, gender, and " \
+                  "date of birth.</div>".format(bgc.person.PeopleId)
 
         if 'Ssn' in to_do:
-            print "<li>Submit your Social Security Number to start the automated background check process.  By " \
-                  "submitting this form, you are giving Tenth permission to automatically run background checks on " \
-                  "you in accordance with our policies, for as long as you continue to serve with children at Tenth. "
-            print "<form method=\"POST\">"
+            print "<div class=\"well\">"
+            print "<form method=\"POST\" action=\"/PyScriptForm/{}?set=ssn{}\">".format(model.ScriptName,
+                                                                                        '&emp=1' if forEmployment else '')
             print "<table><tbody>"
+            print "<tr><td style=\"width:200px;\">First Name</td><td><input type=\"text\" disabled=\"disabled\" " \
+                  "value=\"{}\" /></td></tr>".format(bgc.person.FirstName)
+            print "<tr><td>Middle Name or Initial</td><td><input type=\"text\" disabled=\"disabled\" value=\"{}\" " \
+                  "/></td></tr>".format(bgc.person.MiddleName)
+            print "<tr><td>Last Name</td><td><input type=\"text\" disabled=\"disabled\" value=\"{}\" /></td></tr>". \
+                format(bgc.person.LastName)
+            print "<tr><td>Maiden/Former Last Name</td><td><input type=\"text\" disabled=\"disabled\" value=\"\" " \
+                  "/></td></tr>".format(bgc.person.MaidenName or "")
+            print "<tr><td>Gender</td><td><input type=\"text\" disabled=\"disabled\" value=\"{}\" /></td></tr>".format(
+                bgc.person.Gender.Description or "REQUIRED")
+
+            print "<tr><td>Date of Birth</td><td><input type=\"text\" disabled=\"disabled\" value=\"{}/{}/{}\" " \
+                  "/></td></tr>".format(bgc.person.BirthMonth, bgc.person.BirthDay, bgc.person.BirthYear)
+
+            print "<tr><td colspan=2>"
+            print "<p>To correct any of the information above, <a href=\"/Person2/0#\">edit your profile</a>."
+            print "<p>By submitting your Social Security Number below, you authorize Tenth to run a background check " \
+                  "on you, and to continue to run background checks on you in the future in accordance with Tenth\'s " \
+                  "Child Protection Policy, so long as you continue to work with Children in conjunction with the " \
+                  "ministries of Tenth.</p> "
+            print "<p>The results of the background check will be visible only to specific staff members.  In " \
+                  "accordance with Pennsylvania law, they will not necessarily be available to you.  Your Social " \
+                  "Security Number is not accessible by anyone.</p> "
+            print "</td></tr>"
             print "<tr><td><label for=\"ssn\">SSN</label></td><td><input type=\"password\" id=\"ssn\" " \
                   "required=\"required\" name=\"ssn\" placeholder=\"000-00-0000\" maxlength=\"12\" pattern=\"[0-9]{" \
                   "3}-[0-9]{2}-[0-9]{4}\" /></td></tr> "
+            print "<tr><td></td><td><input type=\"submit\" /></td></tr>"
             print "</tbody></table>"
-            print "<input type=\"submit\" />"
+
             print "</form>"
-            print "</li>"
+            print "</div>"
 
         if 'receive_emp' in to_do or 'receive_vol' in to_do:
-            print "<li>You should soon receive an email with instructions for how to complete the PA Child Abuse " \
-                  "History Clearance.  That email includes a code which you should use in place of payment, " \
-                  "and which ensures the clearance will come back to us. "
+            print "<div class=\"well\">You should soon receive an email with instructions for how to complete the PA " \
+                  "Child Abuse History Clearance.  That email includes a code which you should use in place of " \
+                  "payment, and which ensures the clearance will come back to us. "
             print "<a href=\"mailto:clearances@tenth.org\">Let us know if you haven't received it within a few " \
                   "business days.</a>"  # TODO replace email with some kind of variable.
-            print "</li>"
+            print "</div>"
 
         if 'submit_fbi_aff' in to_do:
-            print "<li>We need your FBI Fingerprinting clearance or an affidavit.  <br />"
+            print "<div class=\"well\">We need your FBI Fingerprinting clearance or an affidavit.  <br />"
             print "If you <b>have only lived in Pennsylvania within the last 10 years</b>, " \
                   "<a href=\"?view=affid\">please click here to sign an affidavit</a>.<br /> "
-            print "If you <b>have lived outside Pennsylvania within the last 10 years</b>, we will need you to get an " \
-                  "FBI fingerprint check.  Click here for full instructions.  Once you receive your " \
+            print "If you <b>have lived outside Pennsylvania within the last 10 years</b>, we will need you to get an" \
+                  " FBI fingerprint check.  Click here for full instructions.  Once you receive your " \
                   "certification in the mail, please scan it and upload it here. "
-            print "</li>"
+            print "</div>"
 
         if 'submit_fbi' in to_do:
-            print "<li>We need your FBI Fingerprinting clearance.  Click here for full instructions.  Once " \
-                  "you receive your certification via mail, please scan it and upload it here.</li> "
+            print "<div class=\"well\">We need your FBI Fingerprinting clearance.  Click here for full instructions. " \
+                  "Once you receive your certification in the mail, please scan it and upload it here.</div>"
 
-        print "</ul>"
 
-# if (model.HttpMethod == "get"):
-#
-#     formSql = "SELECT p.FirstName, p.LastName, p.MiddleName, p.MaidenName, gender.Code as sex, p.BirthMonth, p.BirthDay, p.BirthYear FROM People as p LEFT JOIN lookup.Gender as gender ON p.GenderId = gender.Id WHERE p.PeopleId = @p1"
-#     pInfo = q.QuerySqlTop1(formSql, pid)
-#
-#     form = "<form method=\"POST\">"
-#
-#     form += "<p>Thank you for serving at Tenth!  To protect our children, our other volunteers, and you, we require background checks of all staff members and adult volunteers who work with children.</p>"
-#
-#     form += "<table><tbody>"
-#
-#     form += "<tr><td>First Name</td><td><input type=\"text\" disabled=\"disabled\" value=\"" + pInfo.FirstName + "\" /></td></tr>"
-#
-#     form += "<tr><td>Middle Name or Initial</td><td><input type=\"text\" disabled=\"disabled\" value=\"" + (
-#                 pInfo.MiddleName or "") + "\" /></td></tr>"
-#
-#     form += "<tr><td>Last Name</td><td><input type=\"text\" disabled=\"disabled\" value=\"" + pInfo.LastName + "\" /></td></tr>"
-#
-#     form += "<tr><td>Maiden/Former Last Name</td><td><input type=\"text\" disabled=\"disabled\" value=\"" + (
-#                 pInfo.MaidenName or "") + "\" /></td></tr>"
-#
-#     form += "<tr><td>Gender</td><td><input type=\"text\" disabled=\"disabled\" value=\"" + (
-#                 pInfo.sex or "REQUIRED") + "\" /></td></tr>"
-#
-#     form += "<tr><td>Date of Birth</td><td><input type=\"text\" disabled=\"disabled\" value=\"" + str(
-#         pInfo.BirthMonth) + "/" + str(pInfo.BirthDay) + "/" + (str(pInfo.BirthYear) or "REQUIRED") + "\" /></td></tr>"
-#
-#     form += "<tr><td></td><td>To correct any of the information above, <a href=\"/Person2/0#\">edit your profile</a>.</td></tr>"
-#
-#     form += "<tr><td><label for=\"ssn\">SSN</label></td><td><input type=\"password\" id=\"ssn\" required=\"required\" name=\"ssn\" placeholder=\"###-##-####\" maxlength=\"12\" pattern=\"[0-9]{3}-[0-9]{2}-[0-9]{4}\" /></td></tr>"
-#
-#     form += "</tbody></table>"
-#
-#     form += "<p>By submitting this form, you authorize Tenth to run a background check on you, and to continue to run background checks on you in the future in accordance with Tenth's Child Protection Policy, so long as you continue to work with Children in conjunction with the ministries of Tenth.</p>"
-#
-#     form += "<p>The results of the background check will be visible only to specific staff members.  In accordance with Pennsylvania law, they will not necessarily be available to you.  Your Social Security Number is not accessible by anyone.</p>"
-#
-#     form += "<input type=\"submit\" />"
-#
-#     model.xForm = form + "</form>"
-#     model.Header = "New Background Check"
-#
-# else:
-#
-#     model.AddBackgroundCheck(pid, checkCode, 1, 0, model.Data.ssn)
-#
-#     print("<p>Thank you.  Your background check will be processed shortly.</p>")
-#
-#     # model.xForm = model.JsonSerialize([])
-#
-#     # print(model.JsonSerialize(model))
-#
-#     # print(pid)
+elif model.HttpMethod == "post":
+    bgc = BackgroundChecker()
+
+    forEmployment = model.Data.emp != "" or (q.QueryCount('''
+        (
+            IsMemberOf( Org={0} ) = 1
+            OR IsProspectOf( Org={0} ) = 1
+        )
+        AND PeopleId = {1}
+        '''.format(employeeOrgId, str(bgc.person.PeopleId))) > 0)
+
+    to_do = bgc.items_needed(forEmployment)
+
+    forEmployment = 1 if forEmployment else 0
+
+    ssn = False
+    submit = False
+    if model.Data.set == "ssn" and model.Data.ssn != "":
+        ssn = model.Data.ssn
+
+    if 'submit_emp' in to_do:
+        submit = 'ComboPS'  # TODO add employment distinguisher when it becomes available.
+    elif 'submit_vol' in to_do:
+        submit = 'ComboPS'
+    elif 'submit_basic' in to_do:
+        submit = 'Combo'
+
+    if submit is not False and ssn is not False:
+        model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, ssn, sPlusState=stateCode)
+
+    elif submit is not False and ssn is False:
+        model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, sPlusState=stateCode)
+
+    print "REDIRECT={}/PyScript/{}".format(model.CmsHost, model.ScriptName)
