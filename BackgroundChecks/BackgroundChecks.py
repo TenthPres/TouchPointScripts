@@ -3,7 +3,9 @@ from System import DateTime, String, Convert
 from System.Text.RegularExpressions import Regex, RegexOptions
 from pprint import pprint
 
-global q, model
+global q, model  # This line isn't necessary, but helps with using an IDE.
+
+# TODO add option to check if volunteer is a member of the church
 
 checkCode = "ComboPS"
 employeeOrgId = 61
@@ -75,7 +77,11 @@ class BackgroundChecker:
         self.determine_status()
         for_employment = not not for_employment
         items = []
-        eligibleForSubmission = True
+
+        # Just Added: Should not process Just Added profiles because they may be duplicates.
+        if self.person.MemberStatusId == 50:
+            items.append('JuAdd')
+            return items
 
         # get minors out of the way
         if not for_employment and (self.statusExp['isMin'] & 8 == 8):
@@ -92,7 +98,6 @@ class BackgroundChecker:
                 self.statusExp['paVol'] & 8 == 0 or
                 self.statusExp['basic'] & 8 == 0):
             items.append('Bio')
-            eligibleForSubmission = False
 
         # SSN
         if String.IsNullOrEmpty(self.person.Ssn) and (
@@ -100,14 +105,13 @@ class BackgroundChecker:
                 self.statusExp['paVol'] & 8 == 0 or
                 self.statusExp['basic'] & 8 == 0):
             items.append('Ssn')
-            eligibleForSubmission = False
 
         # PMM Submission
-        if eligibleForSubmission and for_employment and self.statusExp['paEmp'] & 1 == 0:
+        if for_employment and self.statusExp['paEmp'] & 1 == 0:
             items.append("submit_emp")
-        elif eligibleForSubmission and self.statusExp['paVol'] & 1 == 0:
+        elif self.statusExp['paVol'] & 1 == 0:
             items.append("submit_vol")
-        elif eligibleForSubmission and self.statusExp['basic'] & 1 == 0:
+        elif self.statusExp['basic'] & 1 == 0:
             items.append("submit_basic")
 
         # PMM Completion Actions
@@ -174,7 +178,7 @@ class BackgroundChecker:
                         check_status = check_status | self.Statuses['REVIEW_COMPLETE'] | self.Statuses['PASSED']
                     else:
                         check_status = check_status | self.Statuses['REVIEW_COMPLETE']
-                        # TODO: Can this pass if there are issues?
+                        # TODO: Can this pass if there are issues?  TODO: establish a means for checks to pass with issues.
 
             if check.ServiceCode == "ComboPS" and check.ReportLabelID == 1:
                 # PA Employee
@@ -210,17 +214,17 @@ class BackgroundChecker:
                     self.statusCur['basic'] = self.statusCur['basic'] | check_status
 
         # MINOR'S WAIVER
-        if self.person.BirthDate > self.Expirations['isMin']:
+        if self.person.BirthYear is not None and self.person.BirthDate > self.Expirations['isMin']:
             self.statusCur['isMin'] = self.Statuses['CHECK_STARTED'] | self.Statuses['CHECK_COMPLETE'] | \
                                       self.Statuses['REVIEW_COMPLETE'] | self.Statuses['PASSED']
-        if self.person.BirthDate > self.Renewals['isMin']:
+        if self.person.BirthYear is not None and self.person.BirthDate > self.Renewals['isMin']:
             self.statusExp['isMin'] = self.Statuses['CHECK_STARTED'] | self.Statuses['CHECK_COMPLETE'] | \
                                       self.Statuses['REVIEW_COMPLETE'] | self.Statuses['PASSED']
 
         # FBI Fingerprinting
         for doc in self.person.VolunteerForms:
             rx = Regex("(?<docType>\w+)\s+(?<date>[0-9]{1,2}/[0-9]{1,2}/[0-9]{4})",
-                       RegexOptions.Compiled | RegexOptions.IgnoreCase);
+                       RegexOptions.Compiled | RegexOptions.IgnoreCase)
             rm = rx.Match(doc.Name)
 
             if not rm.Success:
@@ -248,7 +252,7 @@ class BackgroundChecker:
 
 userPerson = model.GetPerson(model.UserPeopleId)
 
-if model.Data.view == "list" and userPerson.Users[0].InRole('Admin'):
+if model.Data.view == "technical" and userPerson.Users[0].InRole('Admin'):
 
     model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; }</style>"
 
@@ -301,15 +305,84 @@ if model.Data.view == "list" and userPerson.Users[0].InRole('Admin'):
             print "</tr>"
 
         print "<tr><td colspan=2>To Volunteer:</td><td colspan=4>"
-        pprint(bgc.items_needed(False))
+        # pprint(bgc.items_needed(False))
         print "</td></tr>"
         print "<tr><td colspan=2>For Employment:</td><td colspan=4>"
-        pprint(bgc.items_needed(True))
+        # pprint(bgc.items_needed(True))
         print "</td></tr>"
     print "</table>"
 
+elif model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck'):
+
+    model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; }</style>"
+
+
+    def status_to_cell(status, mask):
+        return "<td class=\"{}\">{}</td>".format(("y" if status & mask == mask else "n"),
+                                                 ("Yes" if status & mask == mask else "No"))
+
+
+    def status_int_to_words(status):
+        if status == 1:
+            return "Started."
+        if status == 3:
+            return "Pending Review."
+        if status == 7:
+            return "FAIL or Error"
+        if status == 15:
+            return "PASS"
+        return "Error"
+
+
+    for p in q.QueryList(people_needing_checks):
+        bgc = BackgroundChecker(p.PeopleId)
+        forEmployment = model.Data.emp != "" or (q.QueryCount('''
+            (
+                IsMemberOf( Org={0} ) = 1
+                OR IsProspectOf( Org={0} ) = 1
+            )
+            AND PeopleId = {1}
+            '''.format(employeeOrgId, str(bgc.person.PeopleId))) > 0)
+
+        print "<div class=\"well\">"
+        print "<h2>{} {}</h2>".format(bgc.person.PreferredName, bgc.person.LastName)
+        print "<p><b>"
+        if forEmployment:
+            print "  {}  ".format("Employable with Children" if bgc.can_employ() else "Not Employable with Children")
+        else:
+            print "  {}  ".format("Volunteer with Children" if bgc.can_volunteer() else "No Volunteering with Children")
+        print "</b><a href=\"https://my.tenth.org/Person2/{}#tab-volunteer\">Documents</a> ".format(bgc.person.PeopleId)
+        print "<a href=\"?viewas={}\">Impersonate</a>".format(bgc.person.PeopleId)
+        print "</p>"
+
+        hasChecks = False
+        print "<ul>"
+        for ci in bgc.statusHis:
+            if bgc.statusCur[ci] == 0:
+                continue
+            hasChecks = True
+
+            description = status_int_to_words(bgc.statusHis[ci])
+            if bgc.statusHis[ci] != bgc.statusExp[ci] and bgc.statusExp[ci] == bgc.statusCur[ci]:
+                description += " Expired"
+            elif bgc.statusHis[ci] != bgc.statusExp[ci]:
+                description += " Expiring"
+
+            print "<li><b>{}</b> {}</li>".format(ci, description)
+
+        print "</ul>"
+        if not hasChecks:
+            print "<p><i>No Documents</i></p>"
+
+        print "</div>"
+
+
 elif model.HttpMethod == "get":
-    bgc = BackgroundChecker()
+
+    if model.Data.viewas != "" and userPerson.Users[0].InRole('BackgroundCheck'):
+        bgc = BackgroundChecker(int(model.Data.viewas))
+    else:
+        bgc = BackgroundChecker()
 
     forEmployment = model.Data.emp != "" or (q.QueryCount('''
         (
@@ -339,15 +412,21 @@ elif model.HttpMethod == "get":
     if len(to_do) == 0:
         print "<p>Your checks do not yet need renewal.  We will let you know when your action is required.</p>"
     else:
-        print "<p>Your checks expire soon.  Please help us update them.</p>"
+        print "<p>Your checks expire soon.  Please help us update them, following each of the steps below.</p>"
 
         # TODO remove items of review_*
 
-        if 'Bio' in to_do:
-            print "<div class=\"well\"><a href=\"/Person2/{}\">Click here to update your profile</a> to include your full name, gender, and " \
-                  "date of birth.</div>".format(bgc.person.PeopleId)
+        if 'JuAdd' in to_do:
+            print "<div class=\"well\">Your profile needs to be established by a staff member before we can continue " \
+                  "through this process.  <a href=\"mailto:dbhelp@tenth.org?subject=Please+convert+my+profile+to+not" \
+                  "+Just+Added\">Email us (email is pre-written for you) to let us know we need to do " \
+                  "this.</a></div>".format(bgc.person.PeopleId)
 
-        if 'Ssn' in to_do:
+        if 'Bio' in to_do:
+            print "<div class=\"well\"><a href=\"/Person2/{}\">Click here to update your profile</a> to include your " \
+                  "full name, gender, and date of birth.</div>".format(bgc.person.PeopleId)
+
+        elif 'Ssn' in to_do:
             print "<div class=\"well\">"
             print "<form method=\"POST\" action=\"/PyScriptForm/{}?set=ssn{}\">".format(model.ScriptName,
                                                                                         '&emp=1' if forEmployment else '')
@@ -378,7 +457,7 @@ elif model.HttpMethod == "get":
             print "</td></tr>"
             print "<tr><td><label for=\"ssn\">SSN</label></td><td><input type=\"password\" id=\"ssn\" " \
                   "required=\"required\" name=\"ssn\" placeholder=\"000-00-0000\" maxlength=\"12\" pattern=\"[0-9]{" \
-                  "3}-[0-9]{2}-[0-9]{4}\" /></td></tr> "
+                  "3}[-]?[0-9]{2}[-]?[0-9]{4}\" /></td></tr> "
             print "<tr><td></td><td><input type=\"submit\" /></td></tr>"
             print "</tbody></table>"
 
@@ -394,17 +473,27 @@ elif model.HttpMethod == "get":
             print "</div>"
 
         if 'submit_fbi_aff' in to_do:
+            print "<form method=\"POST\" enctype=\"multipart/form-data\" action=\"/PyScriptForm/{}?set=fbi\">".format(
+                model.ScriptName)
             print "<div class=\"well\">We need your FBI Fingerprinting clearance or an affidavit.  <br />"
             print "If you <b>have only lived in Pennsylvania within the last 10 years</b>, " \
                   "<a href=\"?view=affid\">please click here to sign an affidavit</a>.<br /> "
             print "If you <b>have lived outside Pennsylvania within the last 10 years</b>, we will need you to get an" \
-                  " FBI fingerprint check.  Click here for full instructions.  Once you receive your " \
-                  "certification in the mail, please scan it and upload it here. "
+                  " FBI fingerprint check.  <a href=\"https://uenroll.identogo.com/workflows/1KG6ZJ/appointment/bio\"" \
+                  " target=\"_blank\">Click here to enter your information and arrange a fingerprinting " \
+                  "appointment.</a>  Pennsylvania uses IdentoGo as a provider for this service.  Either make your " \
+                  "appointment at a location in PA (suggested), or use the \"Card Submission By Mail\" option, " \
+                  "which will provide instructions for completing a fingerprint card and submitting it back to " \
+                  "IdentoGo. Once you receive your certification in the mail, please scan it and upload it here. "
+            print "<!--<input type=\"file\" name=\"fbi\" />-->"
+            print "<!--<input type=\"submit\" />-->"
             print "</div>"
+            print "</form>"
 
         if 'submit_fbi' in to_do:
-            print "<div class=\"well\">We need your FBI Fingerprinting clearance.  Click here for full instructions. " \
-                  "Once you receive your certification in the mail, please scan it and upload it here.</div>"
+            print "<div class=\"well\">We need your FBI Fingerprinting clearance.  We are waiting for clarification " \
+                  "regarding the process for this.  We will notify you when you need to perform this step." \
+                  "<!--Once you receive your certification in the mail, please scan it and upload it here.--></div>"
 
 
 elif model.HttpMethod == "post":
@@ -435,9 +524,9 @@ elif model.HttpMethod == "post":
         submit = 'Combo'
 
     if submit is not False and ssn is not False:
-        model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, ssn, sPlusState=stateCode)
+        submit = model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, ssn, sPlusState=stateCode)
 
     elif submit is not False and ssn is False:
-        model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, sPlusState=stateCode)
+        submit = model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, sPlusState=stateCode)
 
     print "REDIRECT={}/PyScript/{}".format(model.CmsHost, model.ScriptName)
