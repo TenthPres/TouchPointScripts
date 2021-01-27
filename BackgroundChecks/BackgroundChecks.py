@@ -44,6 +44,14 @@ class BackgroundChecker:
         'fingr': DateTime.Now.AddMonths(-57),
         'isMin': DateTime.Now.AddMonths(-213)
     }
+    UsefulCheckNames = {
+        'basic': "Basic Check",
+        'paVol': "PATCH & CAHC (& Basic) (Volunteer)",
+        'paEmp': "PATCH & CAHC (& Basic) (Employee)",
+        'affid': "Resident Affidavit",
+        'fingr': "Fingerprinting",
+        'isMin': "Volunteer is a Minor"
+    }
 
     def __init__(self, pid=model.UserPeopleId):
         self.person = model.GetPerson(pid)
@@ -368,7 +376,7 @@ elif model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck')
             elif bgc.statusHis[ci] != bgc.statusExp[ci]:
                 description += " Expiring"
 
-            print "<li><b>{}</b> {}</li>".format(ci, description)
+            print "<li><b>{}</b> {}</li>".format(BackgroundChecker.UsefulCheckNames[ci], description)
 
         print "</ul>"
         if not hasChecks:
