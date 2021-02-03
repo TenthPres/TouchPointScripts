@@ -1,0 +1,97 @@
+<!-- THIS PLUGIN IS LICENSED UNDER AGPL AND CC BY-NC.  RESTRICTIONS APPLY.  -->
+<!-- See https://github.com/TenthPres/TouchPointScripts/tree/master/EngagementWidget for details -->
+
+<div class="box">
+    <div class="box-title hidden-xs">
+        <h5>{{WidgetName}}</h5>
+    </div>
+    <a class="visible-xs-block" id="giving-fc-collapse" data-toggle="collapse" href="#{{WidgetId}}-section" aria-expanded="true" aria-controls="{{WidgetId}}-section">
+        <div class="box-title">
+            <h5>
+                <i class="fa fa-chevron-circle-right"></i>&nbsp;&nbsp;{{WidgetName}}
+            </h5>
+        </div>
+    </a>
+    <div class="collapse in" id="{{WidgetId}}-section">
+        <div class="box-content center">
+            <div class="chart" id="{{WidgetId}}-chart-container">
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script type="text/javascript">
+let engagementChart = function() {
+    let doChart = function() {
+        Highcharts.chart('{{WidgetId}}-chart-container', {
+            accessibility: {
+                point: {
+                    valueDescriptionFormat: '{point.name}: {point.longDescription}.'
+                }
+            },
+            series: [{
+                type: 'venn',
+                data: [
+                {{#each sets}}
+                    {
+                        sets: ['{{name}}'],
+                        value: {{count}},
+                        name: '{{name}}',
+                        longDescription: '{{description}}'
+                    },
+                {{/each}}
+                {{#each overlaps}}
+                    {
+                        sets: [{{{sets}}}],
+                        value: {{count}},
+                        longDescription: '{{description}}',
+                        visible: false
+                    },
+                {{/each}}
+                ]
+            }],
+            tooltip: {
+                headerFormat:
+                    '<span style="font-size: 14px">{point.point.value} ' +
+                    '<span style="color:{point.color}">\u2022</span> ' +
+                    ' {point.point.name}</span><br/>',
+                pointFormat: '{point.longDescription}'
+            },
+            title: false
+        });
+    },
+    
+    // Everything from here down is just what's needed to load Highcharts within the Widget context.
+    loadHighcharts = function() {
+        if (typeof window.Highcharts !== "undefined") {
+            return loadVenn();
+        } else {
+            let script = document.createElement('script');
+            script.onload = function () {
+                loadVenn()
+            };
+            script.src = "https://code.highcharts.com/highcharts.js";
+            
+            document.head.appendChild(script); 
+        }
+    },
+    loadVenn = function() {
+        if (typeof window.Highcharts._modules["Series/Venn/VennUtils.js"] !== "undefined") {
+            return doChart();
+        } else {
+            let script = document.createElement('script');
+            script.onload = function () {
+                doChart()
+            };
+            script.src = "https://code.highcharts.com/modules/venn.js";
+            
+            document.head.appendChild(script); 
+        }
+    };
+    loadHighcharts();
+};
+engagementChart();
+
+
+</script>

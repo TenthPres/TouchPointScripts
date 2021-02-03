@@ -21,6 +21,9 @@ AcctTwo, our accounting firm.
 
 ## Tools Under Development
 
+- [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
+overlap.
+
 - [**PA Background Check Automation**](BackgroundChecks) - Pennsylvania has weird and specific laws about how background 
 checks are conducted.  This tool tracks their progress, their renewals, and (so far as we are able within the law) automates 
 the process for both staff members and volunteers. 
