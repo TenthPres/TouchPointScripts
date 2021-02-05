@@ -3,6 +3,8 @@
 Shows a proportional venn diagram of the three major categories of engagement: Attendance, Membership, and Giving.  This lets you see how these groups
 overlap.
 
+![Engagement Widget Screenshot](https://github.com/TenthPres/TouchPointScripts/blob/master/.documentation/EngagementScreenshot.png?raw=true)
+
 
 ## Licensing & Charting
 **Summary:** Charting library requires attribution and a free license.  Widget requires remaining open source.  If you don't substantially modify the
