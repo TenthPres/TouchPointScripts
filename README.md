@@ -13,6 +13,9 @@ someone uses across time.  This script allows many more email addresses to be im
 making future data imports significantly less likely to produce duplicates.  This script is strongly encouraged for the 
 Mailchimp and ConstantContact integrations. 
 
+- [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
+overlap.
+
 - [**Role Checker**](RoleChecker) - Automatically update the roles users have as part of the Morning Batch process.  While
 this doesn't remotely handle all the roles, it does handle those that are most important for us and most likely to change.
 
@@ -20,9 +23,6 @@ this doesn't remotely handle all the roles, it does handle those that are most i
 AcctTwo, our accounting firm. 
 
 ## Tools Under Development
-
-- [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
-overlap.
 
 - [**Mapify**](Mapify) - Wondering which neighborhoods need a new Small Groups?  Or where your attendees actually come from?  See 
 people from any search (or org or any other scenario with a Blue Toolbar) on a highly-interactive globe of the world.

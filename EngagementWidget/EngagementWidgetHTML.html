@@ -1,5 +1,5 @@
-<!-- THIS PLUGIN IS LICENSED UNDER AGPL AND CC BY-NC.  RESTRICTIONS APPLY.  -->
-<!-- See https://github.com/TenthPres/TouchPointScripts/tree/master/EngagementWidget for details -->
+<!-- Engagement Widget - Developed by Tenth Presbyterian Church for use with TouchPoint church management software.  -->
+<!-- See https://github.com/TenthPres/TouchPointScripts for license and configuration info. -->
 
 <div class="box">
     <div class="box-title hidden-xs">
@@ -24,7 +24,7 @@
 <script type="text/javascript">
 let engagementChart = function() {
     let doChart = function() {
-        Highcharts.chart('{{WidgetId}}-chart-container', {
+        window.engChart = Highcharts.chart('{{WidgetId}}-chart-container', {
             accessibility: {
                 point: {
                     valueDescriptionFormat: '{point.name}: {point.longDescription}.'
@@ -38,15 +38,19 @@ let engagementChart = function() {
                         sets: ['{{name}}'],
                         value: {{count}},
                         name: '{{name}}',
-                        longDescription: '{{description}}'
+                        longDescription: '{{{description}}}',
+                        {{#if color}}
+                        color: '{{{color}}}',
+                        {{/if}}
                     },
                 {{/each}}
                 {{#each overlaps}}
                     {
                         sets: [{{{sets}}}],
                         value: {{count}},
-                        longDescription: '{{description}}',
-                        visible: false
+                        longDescription: '{{{description}}}',
+                        visible: false,
+                        color: 'rgba(0,0,0,0.1)'
                     },
                 {{/each}}
                 ]
