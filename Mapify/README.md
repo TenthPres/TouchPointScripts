@@ -32,14 +32,11 @@ gradually, probably over a few days.  Your maps won't be very exciting until tha
 
 
 ## To-Do
-- Separate geocoding from report-running.
-- Save geocodings to ExtraValues.
 - Report the number of records not shown. 
+- Improve background/morning geocoding
 - Get >1000 results.  (Probably requires PR to TouchPoint.) 
     - Sort by extra value?
 - Move script to CDN. 
-- Group people within families, and families within addresses. 
-- Make point size proportional to number of people at address. 
 - Separate data-loading into separate API call, if possible. (Likely to requrie a PR to TouchPoint.)
 - Give infobox useful content.  Load separately from main request. 
 - Make colors dynamic from a collection of standard fields.
