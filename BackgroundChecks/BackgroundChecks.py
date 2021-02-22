@@ -421,6 +421,8 @@ elif model.HttpMethod == "get":
         print "<p>Your checks do not yet need renewal.  We will let you know when your action is required.</p>"
     else:
         print "<p>Your checks expire soon.  Please help us update them, following each of the steps below.</p>"
+        
+        print '<!-- Item codes: {} -->'.format(to_do)
 
         # TODO remove items of review_*
 
@@ -467,6 +469,17 @@ elif model.HttpMethod == "get":
                   "required=\"required\" name=\"ssn\" placeholder=\"000-00-0000\" maxlength=\"12\" pattern=\"[0-9]{" \
                   "3}[-]?[0-9]{2}[-]?[0-9]{4}\" /></td></tr> "
             print "<tr><td></td><td><input type=\"submit\" /></td></tr>"
+            print "</tbody></table>"
+
+            print "</form>"
+            print "</div>"
+            
+        elif 'submit_emp' in to_do or 'submit_vol' in to_do or 'submit_basic' in to_do:
+            print "<div class=\"well\">"
+            print "<form method=\"POST\" action=\"/PyScriptForm/{}\">".format(model.ScriptName)
+            print "<table><tbody>"
+            print "<tr><td><p>You're all set for a mostly-automated renewal.  Click to continue.</p></td></tr>"
+            print "<tr><td><input type=\"submit\" /></td></tr>"
             print "</tbody></table>"
 
             print "</form>"
@@ -523,18 +536,26 @@ elif model.HttpMethod == "post":
     submit = False
     if model.Data.set == "ssn" and model.Data.ssn != "":
         ssn = model.Data.ssn
+        
+    package = None;
 
     if 'submit_emp' in to_do:
-        submit = 'ComboPS'  # TODO add employment distinguisher when it becomes available.
+        submit = 'ComboPS'
+        package = 'PA Employee'
+        
     elif 'submit_vol' in to_do:
         submit = 'ComboPS'
+        
     elif 'submit_basic' in to_do:
         submit = 'Combo'
+        
+    user = model.Setting('PMMUser')
+    pasw = model.Setting('PMMPassword')
 
     if submit is not False and ssn is not False:
-        submit = model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, ssn, sPlusState=stateCode)
+        submit = model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, ssn, sUser=user, sPassword=pasw, sPlusState=stateCode, sPackageName=package)
 
     elif submit is not False and ssn is False:
-        submit = model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, sPlusState=stateCode)
+        submit = model.AddBackgroundCheck(bgc.person.PeopleId, submit, 1, forEmployment, sUser=user, sPassword=pasw, sPlusState=stateCode, sPackageName=package)
 
     print "REDIRECT={}/PyScript/{}".format(model.CmsHost, model.ScriptName)
