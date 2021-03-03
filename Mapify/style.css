@@ -1,0 +1,27 @@
+body div.container-fluid#main {
+    width: 100% !important;
+    padding: 0;
+    margin: 0;
+    color: #ddd;
+}
+div#page-header {
+    display: none;
+}
+
+body .box-content {
+    padding: 0;
+    background-color: black;
+    border-width: 0;
+}
+
+html body {
+    background-color:  black;
+}
+
+.box.box-responsive {
+    border-width: 0;
+}
+#cesiumContainer {
+    height: 100%;
+    height: calc(100vh - 50px);
+}
