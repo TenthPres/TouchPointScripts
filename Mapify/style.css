@@ -18,10 +18,54 @@ html body {
     background-color:  black;
 }
 
-.box.box-responsive {
-    border-width: 0;
+.cesium-selection-wrapper svg {
+  fill: #55f;
 }
-#cesiumContainer {
-    height: 100%;
-    height: calc(100vh - 50px);
+
+.cesium-viewer-bottom {
+  opacity: .3;
+  transition: opacity .5s;
+}
+
+.cesium-viewer-bottom .cesium-credit-textContainer,
+.cesium-viewer-bottom .cesium-credit-expand-link {
+  padding-left: .5em;
+}
+
+.cesium-viewer-bottom:hover {
+  opacity: .9;
+}
+
+.cesium-viewer button.cesium-infoBox-camera {
+  display: none;
+}
+
+.cesium-infoBox,
+.cesium-infoBox-bodyless .cesium-infoBox-title,
+.cesium-infoBox-title {
+  border-radius: 0;
+}
+
+.cesium-infoBox-title {
+  background: rgba(84, 84, 84, 0.7);
+}
+
+.cesium-infoBox {
+  background: rgba(38, 38, 38, 0.7);
+}
+
+.cesium-viewer-toolbar button.cesium-button {
+  margin: auto;
+  box-sizing: border-box;
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border-radius: 0;
+  padding: 0;
+  vertical-align: middle;
+  z-index: 0;
+}
+
+.cesium-viewer-toolbar button.cesium-button.cesium-fullscreenButton {
+  margin: 3px;
 }
