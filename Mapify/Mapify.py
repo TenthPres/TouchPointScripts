@@ -227,7 +227,7 @@ elif True:
                 color: new Cesium.Color(0, 1, 0, 0.5)
             },
             _data: {
-                hash: {{this.hash}}
+                hash: '{{this.hash}}'
             }
         });
         {{/each}}
