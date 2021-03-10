@@ -1,8 +1,30 @@
+div#cesiumContainer {
+	/* height: 91%; */
+	top: 0;
+	bottom: 0;
+}
+
+div#loadingOverlay {
+	position: absolute;
+	top: 0;
+	width: 100%;
+	padding-top: 48%;
+	height: 100%;
+	text-align: center;
+	pointer-events: none;
+	background: rgba(0,0,0,.5);
+    transition: opacity 2s;
+}
+
 body div.container-fluid#main {
     width: 100% !important;
     padding: 0;
-    margin: 0;
     color: #ddd;
+	top: 0;
+    margin: 52px 0 0;
+    background: red;
+	position: absolute;
+	bottom: 0;
 }
 div#page-header {
     display: none;
@@ -12,10 +34,20 @@ body .box-content {
     padding: 0;
     background-color: black;
     border-width: 0;
+    height: 100%;
+}
+
+.box.box-responsive {
+	border: 0;
+	height: 100%;
+	top: 0;
+	margin: 0;
+	bottom: 0;
 }
 
 html body {
     background-color:  black;
+    min-height: 100vh;
 }
 
 .cesium-selection-wrapper svg {

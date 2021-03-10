@@ -21,6 +21,8 @@ global Data, model, q
 if model.FromMorningBatch or Data.action == "geocode":
     googleKey = model.Setting("GoogleGeocodeAPIKey", "")
 
+    if model.FromMorningBatch:
+        limit = 1000
 
     def getGoogleGeocode(address):
         params = {
@@ -131,14 +133,15 @@ if model.FromMorningBatch or Data.action == "geocode":
             print "<p><b>{}</b></p>".format(geo)
 
             for pid in peopleIds:
+                qo = "PeopleId = {} AND IncludeDeceased = 1".format(pid)
                 if geo is None:
-                    model.AddExtraValueText(pid, geoHashEV, qp.Hash)
-                    model.DeleteExtraValue(pid, geoLatEV)
-                    model.DeleteExtraValue(pid, geoLngEV)
+                    model.AddExtraValueText(qo, geoHashEV, qp.Hash)
+                    model.DeleteExtraValue(qo, geoLatEV)
+                    model.DeleteExtraValue(qo, geoLngEV)
                 else:
-                    model.AddExtraValueText(pid, geoHashEV, qp.Hash)
-                    model.AddExtraValueText(pid, geoLatEV, str(geo['lat']))
-                    model.AddExtraValueText(pid, geoLngEV, str(geo['lng']))
+                    model.AddExtraValueText(qo, geoHashEV, qp.Hash)
+                    model.AddExtraValueText(qo, geoLatEV, str(geo['lat']))
+                    model.AddExtraValueText(qo, geoLngEV, str(geo['lng']))
 
                 print "<p>{}  {}</p>".format(pid, qp.Hash)
 
@@ -187,14 +190,14 @@ elif True:
     <link href="https://cdn.jsdelivr.net/gh/TenthPres/TouchPointScripts/Mapify/style.min.css" rel="stylesheet">
 
     <div id="cesiumContainer" class="fullSize"></div>
-    <div id="loadingOverlay"><h1>Loading...</h1></div>
+    <div id="loadingOverlay"><h2>Loading...</h2></div>
     <div id="toolbar"></div>
 
     <script>
     Cesium.Ion.defaultAccessToken = '{{{cesiumKey}}}';
     const viewer = new Cesium.Viewer('cesiumContainer', {
             animation : false,
-            fullscreenButton: false, // wil be manually created later, to put it into the toolbar
+            fullscreenButton: false, // will be manually created later, to put it into the toolbar
             geocoder : false,
             infoBox: true,
             skyAtmosphere: false,
@@ -209,27 +212,30 @@ elif True:
 
         //var data = Cesium.CzmlDataSource.load('/pythonapi/mapify?t=czml');
 
-        var flyHome = function () {
-            viewer.camera.flyTo({
-                destination: Cesium.Cartesian3.fromDegrees(-75.169899, 39.947262, 85000.0), // TODO replace with church lat/lng setting
-                duration:4
+        var flyHome = function () { 
+            viewer.camera.flyTo({ 
+                destination: Cesium.Cartesian3.fromDegrees(-75.169899, 39.947262, 85000.0), // TODO replace with church lat/lng setting 
+                duration: 4
             });
         };
 
-        entities = {};
+        entities = [];
 
         {{#each ptsl}}
-        entities[{{@index}}] = viewer.entities.add({
-            position: Cesium.Cartesian3.fromDegrees({{this.lng}}, {{this.lat}}, 0),
-            name: "{{this.addr}}",
-            point: {
-                pixelSize: Math.sqrt({{this.cnt}}) * 10,
-                color: new Cesium.Color(0, 1, 0, 0.5)
-            },
-            _data: {
-                hash: '{{this.hash}}'
-            }
-        });
+        entities.push(
+            viewer.entities.add({
+                position: Cesium.Cartesian3.fromDegrees({{this.lng}}, {{this.lat}}, 0),
+                name: "{{this.addr}}",
+                point: {
+                    pixelSize: Math.sqrt({{this.cnt}}) * 10,
+                    color: new Cesium.Color(0, 1, 0, 0.5)
+                },
+                _data: {
+                    hash: "{{this.hash}}",
+                    //famIds: {{this.families}}
+                }
+            })
+        );
         {{/each}}
 
         viewer.homeButton.viewModel._command = Cesium.createCommand(flyHome);

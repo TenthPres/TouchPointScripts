@@ -25,7 +25,7 @@ AcctTwo, our accounting firm.
 ## Tools Under Development
 
 - [**Mapify**](Mapify) - Wondering which neighborhoods need a new Small Groups?  Or where your attendees actually come from?  See 
-people from any search (or org or any other scenario with a Blue Toolbar) on a highly-interactive globe of the world.
+people from any search (or Involvement or any other scenario with a Blue Toolbar) on a highly-interactive globe of the world.
 
 - [**PA Background Check Automation**](BackgroundChecks) - Pennsylvania has weird and specific laws about how background 
 checks are conducted.  This tool tracks their progress, their renewals, and (so far as we are able within the law) automates 
