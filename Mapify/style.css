@@ -1,7 +1,9 @@
 div#cesiumContainer {
-	/* height: 91%; */
 	top: 0;
 	bottom: 0;
+    left: 0;
+    right: 0;
+    position: absolute;
 }
 
 div#loadingOverlay {
@@ -24,7 +26,7 @@ body div.container-fluid#main {
     margin: 52px 0 0;
     background: red;
 	position: absolute;
-	bottom: 0;
+	bottom: 98px;
 }
 div#page-header {
     display: none;
