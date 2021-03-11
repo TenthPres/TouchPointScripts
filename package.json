@@ -1,0 +1,24 @@
+{
+  "name": "touchpoint-scripts",
+  "version": "1.0.0",
+  "description": "This is a collection of scripts, widgets, and other handy bits for use with TouchPoint Software, the Church Management System we call \"MyTenth.\"",
+  "main": "gulpfile.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TenthPres/TouchPointScripts.git"
+  },
+  "author": "James Kurtz",
+  "license": "AGPL-3.0+",
+  "bugs": {
+    "url": "https://github.com/TenthPres/TouchPointScripts/issues"
+  },
+  "homepage": "https://github.com/TenthPres/TouchPointScripts#readme",
+  "devDependencies": {
+    "gulp": "^4.0.2",
+    "gulp-cli": "^2.3.0",
+    "gulp-zip": "^5.1.0"
+  }
+}
