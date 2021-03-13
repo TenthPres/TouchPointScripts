@@ -10,7 +10,7 @@ div#loadingOverlay {
 	position: absolute;
 	top: 0;
 	width: 100%;
-	padding-top: 48%;
+	padding-top: 40vh;
 	height: 100%;
 	text-align: center;
 	pointer-events: none;

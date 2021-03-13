@@ -255,6 +255,8 @@ elif True:
         new Cesium.FullscreenButton(viewer._toolbar);
 
         flyHome();
+        
+        document.getElementById('loadingOverlay').style.opacity = 0;
 
     </script>
     """

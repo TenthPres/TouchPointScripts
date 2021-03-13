@@ -3,7 +3,7 @@ from System import DateTime, String, Convert
 # noinspection PyUnresolvedReferences
 from System.Text.RegularExpressions import Regex, RegexOptions
 
-global q, model  # This line isn't necessary, but helps with using an IDE.s
+global q, model  # This line isn't necessary, but helps with using an IDE.
 
 # TODO add option to check if volunteer is a member of the church
 
