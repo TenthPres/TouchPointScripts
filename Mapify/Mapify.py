@@ -7,8 +7,6 @@ import clr
 # noinspection PyUnresolvedReferences
 from System.Collections.Generic import Dictionary, List
 
-from pprint import pprint
-
 geoLatEV = "geoLat"
 geoLngEV = "geoLng"
 geoHashEV = "geoHsh"
@@ -148,10 +146,17 @@ if model.FromMorningBatch or Data.action == "geocode":
 
     doAGeocode()
 
-elif True:
+elif model.Data.p1 == "":  # Blue Toolbar Page load
 
     mapData = model.DynamicData()
     mapData.cesiumKey = model.Setting("CesiumKey", "")
+    mapData.count = 0
+
+    try:  # TODO remove when PR 1370 is merged.
+        mapData.count = q.BlueToolbarCount()
+    except:
+        print "<!-- WARNING: PR 1370 has not been merged yet -->"
+        mapData.count = "unknown"
 
     mapData.pts = Dictionary[str, Dictionary[str, object]]()
     for p in q.BlueToolbarReport():
@@ -192,6 +197,9 @@ elif True:
     <div id="cesiumContainer" class="fullSize"></div>
     <div id="loadingOverlay"><h2>Loading...</h2></div>
     <div id="toolbar"></div>
+    <div id="statusInfo" title="People who aren't shown probably could not be geocoded.">
+        Showing <span id="showingCount">0</span> of {{count}} people
+    </div>
 
     <script>
     Cesium.Ion.defaultAccessToken = '{{{cesiumKey}}}';
@@ -248,11 +256,20 @@ elif True:
         // Prevent camera from getting locked to entity via double-click
         viewer.cesiumWidget.screenSpaceEventHandler.setInputAction(function() {}, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
-        viewer.scene.skyAtmosphere.show = false;
+        viewer.scene.fog.enabled = false
         viewer.scene.globe.enableLighting = false;
         viewer.scene.globe.showGroundAtmosphere = false;
 
         new Cesium.FullscreenButton(viewer._toolbar);
+        
+        function reqListener () {
+            console.log(this.responseText);
+        }
+        
+        var xhr = new XMLHttpRequest();
+        xhr.addEventListener("load", reqListener);
+        xhr.open("GET", "/PyScript/Mapify/Jawn");
+        xhr.send();
 
         flyHome();
         
@@ -262,3 +279,8 @@ elif True:
     """
 
     print model.RenderTemplate(template, mapData)
+
+
+elif model.Data.p1 is not None:  # XHR Data Request
+
+    print "{}"

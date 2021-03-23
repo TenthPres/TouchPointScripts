@@ -100,6 +100,16 @@ html body {
   z-index: 0;
 }
 
-.cesium-viewer-toolbar button.cesium-button.cesium-fullscreenButton {
-  margin: 3px;
+div#statusInfo {
+	position: absolute;
+	bottom: 0;
+	right: 0;
+	padding: .5em 1em;
+	background: rgba(0,0,0,.5);
+}
+
+button.cesium-button.cesium-toolbar-button,
+span.cesium-sceneModePicker-wrapper.cesium-toolbar-button {
+	margin-right: 3px;
+	margin-left: 0;
 }
