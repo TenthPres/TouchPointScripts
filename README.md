@@ -15,6 +15,8 @@ Mailchimp and ConstantContact integrations.
 
 - [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
 overlap.
+  
+- [**Recent Communion**](RecentCommunion) - Indicate who has attended services where communion has been served.
 
 - [**Role Checker**](RoleChecker) - Automatically update the roles users have as part of the Morning Batch process.  While
 this doesn't remotely handle all the roles, it does handle those that are most important for us and most likely to change.
