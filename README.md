@@ -16,6 +16,8 @@ Mailchimp and ConstantContact integrations.
 - [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
 overlap.
   
+- [**Finance > Budget Summary**](Finance%20Reports) - List each budgeted fund and where giving stands compared to budget.
+  
 - [**Global > Birthdays & Anniversaries**](Global%20Reports) - Generate a list of partners who have birthdays or 
 anniversaries coming up, and email it to the appropriate people.  We use this to send cards to partners each month.
   
