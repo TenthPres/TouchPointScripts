@@ -16,6 +16,9 @@ Mailchimp and ConstantContact integrations.
 - [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
 overlap.
   
+- [**Global > Birthdays & Anniversaries**](Global%20Reports) - Generate a list of partners who have birthdays or 
+anniversaries coming up, and email it to the appropriate people.  We use this to send cards to partners each month.
+  
 - [**Recent Communion**](RecentCommunion) - Indicate who has attended services where communion has been served.
 
 - [**Role Checker**](RoleChecker) - Automatically update the roles users have as part of the Morning Batch process.  While
