@@ -4,8 +4,9 @@ import urllib
 import json
 # noinspection PyUnresolvedReferences
 import clr
+
 clr.AddReference('System.Web.Extensions')
-clr.AddReference('System.Collections.Generic')
+# clr.AddReference('System.Collections.Generic')
 
 # noinspection PyUnresolvedReferences
 from System.Web.Script.Serialization import JavaScriptSerializer
@@ -22,11 +23,14 @@ googleRegionBias = "us"
 
 global Data, model, q
 
+model.Title = "Mapify"
+
 if model.FromMorningBatch or Data.action == "geocode":
     googleKey = model.Setting("GoogleGeocodeAPIKey", "")
 
     if model.FromMorningBatch:
         limit = 1000
+
 
     def getGoogleGeocode(address):
         params = {
@@ -76,7 +80,7 @@ if model.FromMorningBatch or Data.action == "geocode":
         # Target List   TODO: remove geocodes for people who have removed their addresses
         qSrc = """
         -- noinspection SqlResolveForFile
-        
+
         SELECT TOP {1} * 
         FROM (
             SELECT 
@@ -214,11 +218,32 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
     // Prevent camera from getting locked to entity via double-click
     viewer.cesiumWidget.screenSpaceEventHandler.setInputAction(function() {}, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
+    // Handle Entity Selection
+    viewer.cesiumWidget.screenSpaceEventHandler.setInputAction(function(movement) {
+        var clickedOn = viewer.scene.pick(movement.position),
+            clickedEntity = (Cesium.defined(clickedOn)) ? clickedOn.id : undefined;
+        if (Cesium.defined(clickedEntity)) {
+            viewer.selectedEntity = handleSelectedEntity(clickedEntity);
+        } else {
+            viewer.selectedEntity = undefined;
+        }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
     new Cesium.FullscreenButton(viewer._toolbar);
-    
+
     let entities = {},
         showCount = 0,
-        requestsNeeded = 1;
+        requestsNeeded = 1,
+        colorAssignments = {},
+        categoricalColors = [
+            new Cesium.Color(0, 1, 0, 0.5),
+            new Cesium.Color(1, 0, 0, 0.5),
+            new Cesium.Color(0, 0, 1, 0.5),
+            new Cesium.Color(1, 1, 0, 0.5),
+            new Cesium.Color(0, 1, 1, 0.5),
+            new Cesium.Color(1, 0, 1, 0.5)
+        ],
+        nullColor = new Cesium.Color(0, 0, 0, 0.5);
 
     function reqListener() {
         let start = this.responseText.indexOf(">>DATA>") + 7,
@@ -231,13 +256,16 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
                     name: data[hsh].addr,
                     point: {
                         pixelSize: Math.sqrt(data[hsh].cnt) * 10,
-                        color: new Cesium.Color(0, 1, 0, 0.5)
+                        color: nullColor
                     },
                     _data: {
+                        loaded: false,
                         hash: hsh,
-                        famIds: data[hsh].families
+                        famIds: data[hsh].families,
+                        resCode: data[hsh].resCode
                     }
                 });
+                entities[hsh].point.color = computeColor(entities[hsh]);
                 showCount += data[hsh].cnt;
             } else {
                 console.log("ERROR: hash points need to be merged across requests."); // TODO
@@ -263,6 +291,67 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
         xhr.open("GET", url);
         xhr.send();
     }
+    
+    function colorForCategory(field, category) {
+        if (!colorAssignments.hasOwnProperty(field)) {
+            colorAssignments[field] = {
+                values: {},
+                count: 0
+            }
+        }
+        if (!colorAssignments[field].values.hasOwnProperty(category)) {
+            let index = colorAssignments[field].count % categoricalColors.length;
+            colorAssignments[field].values[category] = categoricalColors[index];
+            colorAssignments[field].count++;
+        }
+        return colorAssignments[field].values[category];
+    }
+    
+    function computeColor(entity) {
+        colorBasis = "resCode";
+    
+        if (["resCode"].indexOf(colorBasis) > -1) {  // categorical fields
+            return colorForCategory(colorBasis, entity._data[colorBasis]);
+        } else {  // quantified fields
+            console.warn("Quantified colors not yet available")
+        }
+    }
+
+    function handleSelectedEntity(selectedEntity) {
+        console.log(selectedEntity);
+
+        if (selectedEntity._data.loaded === false) {
+            let url = window.location.origin + getPyScriptAddress(),
+                xhr = new XMLHttpRequest();
+            selectedEntity._data.loaded = undefined; // loading
+            selectedEntity.description = "loading...";
+            xhr.addEventListener("load", function() {
+                updateEntityWithPersonalData(selectedEntity, this);
+            });
+            xhr.open("POST", url, true);
+            xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+            xhr.send("hsh=" + selectedEntity._data.hash + "&fams=" + JSON.stringify(selectedEntity._data.famIds));
+        }
+
+        return selectedEntity;
+    }
+
+    function getPyScriptAddress() {
+        let path = window.location.pathname;
+        path = "/PyScriptForm/" + path.substr(18, path.length - 54);
+
+        return path;
+    }
+
+    function updateEntityWithPersonalData(entity, xhrResp) {
+        let start = xhrResp.responseText.indexOf(">>DATA>") + 7,
+            data = xhrResp.responseText.substr(start, xhrResp.responseText.indexOf("<DATA<<") - start)
+
+        entity._data.loaded = true;
+        entity.description = data;
+
+        console.log(data);
+    }
 
     </script>
     """
@@ -270,7 +359,7 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
     print model.RenderTemplate(template, mapData)
 
 
-elif model.Data.p != "":  # XHR Data Request
+elif model.Data.p != "":  # XHR Map Data Request
 
     pts = Dictionary[str, Dictionary[str, object]]()
     for p in q.BlueToolbarReport():
@@ -282,6 +371,10 @@ elif model.Data.p != "":  # XHR Data Request
             continue
 
         if not pts.ContainsKey(hsh):
+            resCode = p.ResidentCode or p.Family.ResidentCode
+            if resCode is not None:
+                resCode = resCode.Code
+
             pts.Add(hsh, Dictionary[str, object]({
                 'cnt': 0,
                 'hash': hsh,
@@ -289,6 +382,7 @@ elif model.Data.p != "":  # XHR Data Request
                 'addr': p.AddressLineOne or p.Family.AddressLineOne,
                 'lat': lat,
                 'lng': lng,
+                'resCode': resCode
             }))
 
         if not pts[hsh]['families'].ContainsKey(str(p.Family.FamilyId)):
@@ -297,7 +391,167 @@ elif model.Data.p != "":  # XHR Data Request
         pts[hsh]['families'][str(p.Family.FamilyId)].Add(p.PeopleId)
         pts[hsh]['cnt'] += 1
 
-    print "<!-->>>>>DATA>" + JavaScriptSerializer().Serialize(pts) + "<DATA<<<<<-->"
+    print "<!-- >>>>>DATA>" + JavaScriptSerializer().Serialize(pts) + "<DATA<<<<< -->"
 
-elif model.Data.fams != "":  # XHR Data Request - Families and people TODO: this.
-    print "<!-->>>>>DATA>" + JavaScriptSerializer().Serialize([]) + "<DATA<<<<<-->"
+
+elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != '':  # XHR Point data request
+    included = JavaScriptSerializer().DeserializeObject(model.Data.fams)
+    includedPeop = []
+    for f in included.Values:
+        for p in f:
+            includedPeop.append(p)
+    includedFams = JavaScriptSerializer().Serialize(included.Keys).replace('"', '')[1:-1]
+    includedPeop = JavaScriptSerializer().Serialize(includedPeop).replace('"', '')[1:-1]
+
+    sql = """
+    -- noinspection SqlResolveForFile
+
+    SELECT *, 1 as [includedFamily], (IIF(p.PeopleId IN ({3}), 1, 0)) as [includedPerson]
+        FROM People p 
+            LEFT JOIN Families f on p.FamilyId = f.FamilyId
+            LEFT JOIN PeopleExtra pe ON pe.Field = '{0}' AND pe.PeopleId = p.PeopleId
+    WHERE p.FamilyId IN ({2})
+    UNION
+    SELECT *, 0 as [includedFamily], (IIF(p.PeopleId IN ({3}), 1, 0)) as [includedPerson]
+        FROM People p 
+            LEFT JOIN Families f on p.FamilyId = f.FamilyId
+            LEFT JOIN PeopleExtra pe ON pe.Field = '{0}' AND pe.PeopleId = p.PeopleId
+    WHERE pe.Data = '{1}' AND p.FamilyId NOT IN ({2})
+    ORDER BY includedFamily DESC, p.FamilyId ASC, includedPerson DESC, p.PositionInFamilyId
+    """.format(geoHashEV, model.Data.hsh, includedFams, includedPeop)
+
+    famId = 0
+    out = '''
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+
+    <style>
+a.fa {
+	text-decoration: none;
+}
+
+a.fa {
+	display: inline-block;
+	width: 1.2em;
+	text-align: center;
+}
+
+div.family {
+	/* border: solid #9999; */
+	/* border-width: 1px 0 0; */
+	margin-bottom: .5em;
+	margin: 0 -1em .5em;
+	padding: 0 1em .5em;
+	background: rgba(0,0,0,.2);
+}
+
+div.family-members {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+h2, h3 {
+	margin: 0;
+}
+
+.excluded {
+	opacity: .5;
+}
+
+.person {
+	display: inline-block;
+	width: 48%;
+	min-height: 4.1em;
+}
+
+.person-photo {
+	float: left;
+	width: 4em;
+	margin-right: .5em;
+	background: #333;
+	height: 4em;
+	background-size: cover;
+}
+
+p.note {
+	font-style: italic;
+}
+
+p {
+	margin: 0.2em 0;
+}
+
+p {
+	margin: 0.2em 0;
+}
+
+p.note {
+	font-style: italic;
+}
+
+h2 {}
+
+h2 {
+	font-size: 1.2em;
+	padding: 0.2em 0;
+	background-color: rgb(70 70 70 / 90%);
+	margin: 0 -0.90em 0.2em;
+	text-align: center;
+	border-top: 1px solid #999;
+}
+
+    </style>
+    '''
+
+    template = """
+    {{IfNotEqual d.FamilyId d.PrevFamilyId}}
+        {{IfGt d.PrevFamilyId 0}}
+            </div></div>
+        {{/IfGt}}
+    <div class="family{{IfEqual d.includedFamily 1}} included{{else}} excluded{{/IfEqual}}">
+        <h2>
+        The {{ p.Family.HeadOfHousehold.Name }} Family
+        {{IfNotEqual d.HomePhone ''}}
+            <a href="tel:{{d.HomePhone}}" class="fa fa-phone" title="Call Home Phone"></a>
+        {{/IfNotEqual}}
+        </h2><div class="family-members">
+    {{/IfNotEqual}}
+
+    <div class="person{{IfEqual d.includedPerson 1}} included{{else}} excluded{{/IfEqual}}">
+        <div class="person-photo"
+            {{IfNotEqual pHasPhoto 0}} 
+            style="
+                background-image: url('/Portrait/{{ p.Picture.SmallId }}');
+                background-position: {{p.Picture.X}}% {{p.Picture.Y}}%;
+                "
+            {{/IfNotEqual}}>
+        </div>
+        <h3>
+            <a href="/Person2/{{d.PeopleId}}" target="_blank">{{d.Name}}</a>
+        </h3>
+        {{IfNotEqual d.includedPerson 1}}<p class="note">(not included in search)</p>{{/IfNotEqual}}
+        <p>
+            {{IfNotEqual d.EmailAddress ''}}
+                <a href="mailto:{{d.EmailAddress}}" class="fa fa-envelope" title="Send Email"></a>
+            {{/IfNotEqual}}
+            {{IfNotEqual d.CellPhone ''}}
+                <a href="tel:{{d.CellPhone}}" class="fa fa-mobile" title="Call Mobile Phone"></a>
+            {{/IfNotEqual}}
+            {{IfNotEqual d.WorkPhone ''}}
+                <a href="tel:{{d.WorkPhone}}" class="fa fa-phone" title="Call Work Phone"></a>
+            {{/IfNotEqual}}
+        </p>
+    </div>
+    """
+
+    for Data.d in q.QuerySql(sql):
+        Data.d.PrevFamilyId = famId
+        Data.p = model.GetPerson(Data.d.PeopleId)
+        Data.pHasPhoto = 1 * (Data.p.Picture is not None)
+
+        out += model.RenderTemplate(template)
+
+        famId = Data.d.FamilyId
+
+    out += "</div></div>"
+
+    print "<!-- >>>>>DATA>" + out + "<DATA<<<<< -->"
