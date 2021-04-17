@@ -268,7 +268,7 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
                 entities[hsh].point.color = computeColor(entities[hsh]);
                 showCount += data[hsh].cnt;
             } else {
-                console.log("ERROR: hash points need to be merged across requests."); // TODO
+                console.warn("ERROR: hash points need to be merged across requests."); // TODO
             }
         }
 
@@ -318,8 +318,6 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
     }
 
     function handleSelectedEntity(selectedEntity) {
-        console.log(selectedEntity);
-
         if (selectedEntity._data.loaded === false) {
             let url = window.location.origin + getPyScriptAddress(),
                 xhr = new XMLHttpRequest();
@@ -331,6 +329,8 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
             xhr.open("POST", url, true);
             xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
             xhr.send("hsh=" + selectedEntity._data.hash + "&fams=" + JSON.stringify(selectedEntity._data.famIds));
+        } else {
+            correctIframeHeight();
         }
 
         return selectedEntity;
@@ -350,10 +350,13 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
         entity._data.loaded = true;
         entity.description = data;
         
+        correctIframeHeight();
+    }
+    
+    function correctIframeHeight() {
         let iframe = document.getElementsByClassName('cesium-infoBox-iframe')[0];
         setTimeout(() => {
             iframe.style.height = parseFloat(iframe.style.height.split('p')[0]) + 20 + "px";
-            console.log(iframe.style.height);
         }, 50);
     }
 

@@ -46,10 +46,8 @@ have been geocoded by creating a Search (Builder) searching for people who have 
 
 ## To-Do
 - Report the number of records not shown.
-- Get >1000 results.  (Probably requires PR to TouchPoint.)
-- Move script to CDN. 
-- Separate data-loading into separate ajax request.
-- Give infobox useful content.  Load separately from main request. 
+- Get >1000 results.  (Pending PR to TouchPoint.)
+- Move script to CDN.
 - Make colors dynamic from a collection of standard fields.
 
 ### Maybe someday
