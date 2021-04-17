@@ -1,5 +1,5 @@
 # This script adds Mapify to the MorningBatch to keep lat/lng populated and updated.  It then adds it to the custom
-# report menu and runs an initial batch.
+# report menu and runs an initial batch of geocoding.
 
 batchContent = model.PythonContent('MorningBatch')
 if '''model.CallScript("Mapify")''' not in batchContent and '''model.CallScript('Mapify')''' not in batchContent:

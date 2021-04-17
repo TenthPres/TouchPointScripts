@@ -1,0 +1,69 @@
+a.fa {
+    text-decoration: none;
+}
+
+a.fa {
+    display: inline-block;
+    width: 1.2em;
+    text-align: center;
+}
+
+div.family {
+    margin-bottom: .5em;
+    padding: 0 0 .5em;
+}
+
+div.family-members {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 0 1em;
+}
+
+h2, h3 {
+    margin: 0;
+}
+
+.excluded {
+    opacity: .5;
+    transition: opacity .5s;
+}
+
+.excluded:hover {
+    opacity: 1;
+}
+
+.person {
+    display: inline-block;
+    width: 48%;
+    min-height: 4.1em;
+}
+
+.person-photo {
+    float: left;
+    width: 4em;
+    margin-right: .5em;
+    background: #333;
+    height: 4em;
+    background-size: cover;
+}
+
+p.note {
+    font-style: italic;
+}
+
+p {
+    margin: 0.2em 0;
+}
+
+h2 {
+    font-size: 1.2em;
+    padding: 0.2em 1em;
+    background-color: #3339;
+    margin: 0 0 0.2em;
+    text-align: center;
+}
+
+div.cesium-infoBox-description {
+    padding: 0;
+    margin: 0;
+}

@@ -113,3 +113,11 @@ span.cesium-sceneModePicker-wrapper.cesium-toolbar-button {
 	margin-right: 3px;
 	margin-left: 0;
 }
+
+div.cesium-infoBox-title {
+	background: #333;
+}
+
+iframe.cesium-infoBox-iframe {
+	transition: height .5s;
+}

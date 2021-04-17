@@ -349,8 +349,12 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
 
         entity._data.loaded = true;
         entity.description = data;
-
-        console.log(data);
+        
+        let iframe = document.getElementsByClassName('cesium-infoBox-iframe')[0];
+        setTimeout(() => {
+            iframe.style.height = parseFloat(iframe.style.height.split('p')[0]) + 20 + "px";
+            console.log(iframe.style.height);
+        }, 50);
     }
 
     </script>
@@ -423,83 +427,7 @@ elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != 
     famId = 0
     out = '''
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
-
-    <style>
-a.fa {
-	text-decoration: none;
-}
-
-a.fa {
-	display: inline-block;
-	width: 1.2em;
-	text-align: center;
-}
-
-div.family {
-	/* border: solid #9999; */
-	/* border-width: 1px 0 0; */
-	margin-bottom: .5em;
-	margin: 0 -1em .5em;
-	padding: 0 1em .5em;
-	background: rgba(0,0,0,.2);
-}
-
-div.family-members {
-    display: flex;
-    flex-wrap: wrap;
-}
-
-h2, h3 {
-	margin: 0;
-}
-
-.excluded {
-	opacity: .5;
-}
-
-.person {
-	display: inline-block;
-	width: 48%;
-	min-height: 4.1em;
-}
-
-.person-photo {
-	float: left;
-	width: 4em;
-	margin-right: .5em;
-	background: #333;
-	height: 4em;
-	background-size: cover;
-}
-
-p.note {
-	font-style: italic;
-}
-
-p {
-	margin: 0.2em 0;
-}
-
-p {
-	margin: 0.2em 0;
-}
-
-p.note {
-	font-style: italic;
-}
-
-h2 {}
-
-h2 {
-	font-size: 1.2em;
-	padding: 0.2em 0;
-	background-color: rgb(70 70 70 / 90%);
-	margin: 0 -0.90em 0.2em;
-	text-align: center;
-	border-top: 1px solid #999;
-}
-
-    </style>
+    <link href="https://cdn.jsdelivr.net/gh/TenthPres/TouchPointScripts/Mapify/infobox-style.min.css" rel="stylesheet">
     '''
 
     template = """
