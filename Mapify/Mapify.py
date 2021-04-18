@@ -209,16 +209,16 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
         });
     };
     
-    //function clearInfobox() {
-    //    viewer.infoBox.frame.contentDocument.body.innerHTML = "";
-    //    viewer.infoBox.frame.removeEventListener('load', clearInfobox);
-    //}
+    function clearInfobox() {
+        viewer.infoBox.frame.contentDocument.body.removeChild(viewer.infoBox.frame.contentDocument.body.firstChild)
+        viewer.infoBox.frame.removeEventListener('load', clearInfobox);
+    }
 
     viewer.homeButton.viewModel._command = Cesium.createCommand(flyHome);
     viewer.baseLayerPicker.viewModel.selectedImagery = viewer.baseLayerPicker.viewModel.imageryProviderViewModels[8];
     viewer.infoBox.frame.sandbox = "allow-same-origin allow-top-navigation allow-pointer-lock allow-popups allow-forms allow-scripts";
     viewer.infoBox.frame.src = "/HomeWidgets/Embed/0";
-    //viewer.infoBox.frame.addEventListener('load', clearInfobox);
+    viewer.infoBox.frame.addEventListener('load', clearInfobox);
     viewer.infoBox.viewModel.enableCamera = false;
     viewer.scene.globe.showGroundAtmosphere = false;
 
