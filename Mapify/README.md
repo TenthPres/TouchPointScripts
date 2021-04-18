@@ -45,7 +45,7 @@ have been geocoded by creating a Search (Builder) searching for people who have 
 (blank) with the name "GeoLat"
 
 ## To-Do
-- Report the number of records not shown.
+- Report the number of records not shown.  (Pending PR to TouchPoint.)
 - Get >1000 results.  (Pending PR to TouchPoint.)
 - Move script to CDN.
 - Make colors dynamic from a collection of standard fields.

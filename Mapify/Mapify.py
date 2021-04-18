@@ -208,10 +208,17 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
             duration: 4
         });
     };
+    
+    //function clearInfobox() {
+    //    viewer.infoBox.frame.contentDocument.body.innerHTML = "";
+    //    viewer.infoBox.frame.removeEventListener('load', clearInfobox);
+    //}
 
     viewer.homeButton.viewModel._command = Cesium.createCommand(flyHome);
     viewer.baseLayerPicker.viewModel.selectedImagery = viewer.baseLayerPicker.viewModel.imageryProviderViewModels[8];
     viewer.infoBox.frame.sandbox = "allow-same-origin allow-top-navigation allow-pointer-lock allow-popups allow-forms allow-scripts";
+    viewer.infoBox.frame.src = "/HomeWidgets/Embed/0";
+    //viewer.infoBox.frame.addEventListener('load', clearInfobox);
     viewer.infoBox.viewModel.enableCamera = false;
     viewer.scene.globe.showGroundAtmosphere = false;
 
@@ -291,7 +298,7 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
         xhr.open("GET", url);
         xhr.send();
     }
-    
+
     function colorForCategory(field, category) {
         if (!colorAssignments.hasOwnProperty(field)) {
             colorAssignments[field] = {
@@ -306,10 +313,10 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
         }
         return colorAssignments[field].values[category];
     }
-    
+
     function computeColor(entity) {
         colorBasis = "resCode";
-    
+
         if (["resCode"].indexOf(colorBasis) > -1) {  // categorical fields
             return colorForCategory(colorBasis, entity._data[colorBasis]);
         } else {  // quantified fields
@@ -349,15 +356,20 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
 
         entity._data.loaded = true;
         entity.description = data;
-        
+
         correctIframeHeight();
     }
-    
+
     function correctIframeHeight() {
-        let iframe = document.getElementsByClassName('cesium-infoBox-iframe')[0];
+        let iframe = viewer.infoBox.frame;
         setTimeout(() => {
             iframe.style.height = parseFloat(iframe.style.height.split('p')[0]) + 20 + "px";
         }, 50);
+    }
+
+    function imageLoaded(that) {
+        that.parentElement.style.backgroundImage = "url(" + that.src + ")";
+        that.parentElement.style.opacity = 1;
     }
 
     </script>
@@ -430,7 +442,7 @@ elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != 
     famId = 0
     out = '''
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/gh/TenthPres/TouchPointScripts/Mapify/infobox-style.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/gh/TenthPres/TouchPointScripts/Mapify/style-infobox.min.css" rel="stylesheet">
     '''
 
     template = """
@@ -450,11 +462,9 @@ elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != 
     <div class="person{{IfEqual d.includedPerson 1}} included{{else}} excluded{{/IfEqual}}">
         <div class="person-photo"
             {{IfNotEqual pHasPhoto 0}} 
-            style="
-                background-image: url('/Portrait/{{ p.Picture.SmallId }}');
-                background-position: {{p.Picture.X}}% {{p.Picture.Y}}%;
-                "
-            {{/IfNotEqual}}>
+            style="background-position: {{p.Picture.X}}% {{p.Picture.Y}}%; opacity:0;">
+            <img onload="parent.imageLoaded(this)" src="/Portrait/{{ p.Picture.SmallId }}"
+            /{{/IfNotEqual}}>
         </div>
         <h3>
             <a href="/Person2/{{d.PeopleId}}" target="_blank">{{d.Name}}</a>

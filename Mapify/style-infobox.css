@@ -25,6 +25,9 @@ h2, h3 {
 
 .excluded {
     opacity: .5;
+}
+
+* {
     transition: opacity .5s;
 }
 
@@ -45,6 +48,10 @@ h2, h3 {
     background: #333;
     height: 4em;
     background-size: cover;
+}
+
+.person-photo img {
+    display:none;
 }
 
 p.note {
