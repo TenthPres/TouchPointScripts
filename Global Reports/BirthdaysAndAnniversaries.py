@@ -6,6 +6,7 @@ emailRecipientQuery = "UserRole = 57"   # Query for who receives the emailed rep
 emailFromAddress = "go@tenth.org"       # the "reply-to" address of the emailed report
 emailFromPeopleId = 22029               # the people ID to associate with the sending emailed report
 model.Title = "Global Partner Birthdays and Anniversaries"  # used as email subject
+secEv = "Security Level"                # Name of an extra value that indicates partner security
 
 # Determine the range for a birthday or anniversary.  Include those are are:
 rangeMin = 30  # at least this many days in the future
@@ -19,10 +20,9 @@ global Data, q
 
 # Birthdays
 
-
 out = "<h2>Upcoming Birthdays</h2>"
 out += "<p>Between {} and {} days in the future</p>".format(rangeMin, rangeMax)
-out += "<table><tr><th>Partner</th><th>Birthday</th></tr>"
+out += "<table><tr><th>Partner</th><th>Birthday</th><th>{}</th></tr>".format(secEv)
 
 has = False
 
@@ -31,8 +31,8 @@ for p in q.QueryList('''
         DaysTillBirthday > {}
         AND DaysTillBirthday < {}
     )
-    AND FamilyExtraInt( Name='Security Level' ) > 0
-'''.format(rangeMin, rangeMax)):
+    AND FamilyExtraInt( Name='{}' ) > 0
+'''.format(rangeMin, rangeMax, secEv)):
 
     name = p.Name
     if p.Age < 20:
@@ -42,8 +42,12 @@ for p in q.QueryList('''
 
     has = True
 
-    out += "<tr><td><a href=\"{}/Person2/{}\">{}</a></td><td>{}</td></tr>".format(model.CmsHost, p.PeopleId, name,
-                                                                                  p.BirthDate.ToString("MMMM d"))
+    out += """
+    <tr>
+        <td><a href=\"{}/Person2/{}\">{}</a></td>
+        <td>{}</td>
+        <td>{}</td>
+    </tr>""".format(model.CmsHost, p.PeopleId, name, p.BirthDate.ToString("MMMM d"), p.Family.GetExtra(secEv))
 
 if not has:
     out += "<td colspan=2>None this period</td>"
@@ -55,7 +59,7 @@ out += "</table>"
 
 out += "<h2>Upcoming Anniversaries</h2>"
 out += "<p>Between {} and {} days in the future</p>".format(rangeMin, rangeMax)
-out += "<table><tr><th>Partners</th><th>Anniversary</th></tr>"
+out += "<table><tr><th>Partners</th><th>Anniversary</th><th>{}</th></tr>".format(secEv)
 
 listedFids = []
 has = False
@@ -65,8 +69,8 @@ for p in q.QueryList('''
         DaysTillAnniversary > {}
         AND DaysTillAnniversary < {}
     )
-    AND FamilyExtraInt( Name='Security Level' ) > 0
-'''.format(rangeMin, rangeMax)):
+    AND FamilyExtraInt( Name='{}' ) > 0
+'''.format(rangeMin, rangeMax, secEv)):
 
     has = True
 
@@ -75,10 +79,18 @@ for p in q.QueryList('''
 
     listedFids.append(p.FamilyId)
 
-    out += "<tr><td><a href=\"{0}/Person2/{1}\">{2}</a> & <a href=\"{0}/Person2/{3}\">{4}</a></td><td>{5}</td></tr>".format(
-        model.CmsHost, p.Family.HeadOfHousehold.PeopleId, p.Family.HeadOfHousehold.Name,
+    out += """
+    <tr>
+        <td><a href=\"{0}/Person2/{1}\">{2}</a> & <a href=\"{0}/Person2/{3}\">{4}</a></td>
+        <td>{5}</td>
+        <td>{6}</td>
+    </tr>""".format(
+        model.CmsHost,
+        p.Family.HeadOfHousehold.PeopleId, p.Family.HeadOfHousehold.Name,
         p.Family.HeadOfHouseholdSpouse.PeopleId, p.Family.HeadOfHouseholdSpouse.Name,
-        p.WeddingDate.ToString("MMMM d, yyyy"))
+        p.WeddingDate.ToString("MMMM d, yyyy"),
+        p.Family.GetExtra(secEv)
+    )
 
 if not has:
     out += "<td colspan=2>None this period</td>"
