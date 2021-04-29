@@ -139,7 +139,9 @@ else:
             }).then((result) => {
                 if (result.isConfirmed) {
                     Swal.fire({
-                        title: 'Sent!'
+                        title: 'Sent!',
+                        showConfirmButton: false,
+                        timer: 1500
                     })
                 }
             })
