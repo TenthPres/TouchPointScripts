@@ -98,6 +98,7 @@ print "\n Remove Attendance role\n"
 # Remove the attendance role from someone who is not the leader of an org. 
 for p in q.QueryList('''
     UserRole = 3[Attendance]
+    AND IsMemberOf( Org=61[Staff] ) <> 1[True]
     AND MemberTypeCodes(  ) NOT IN ( 159[Coordinator], 103[Director], 150[Host], 140[Leader], 160[Teacher] )
     AND UserRole NOT IN ( 9[Developer], 18[Checkin], 46[APIOnly], 47[APIWrite] )
     AND EmailAddress <> '*@touchpointsoftware.com'
