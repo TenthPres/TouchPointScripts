@@ -1,7 +1,7 @@
 # Mapify
 
-**THIS PROJECT IS NOT READY FOR DISTRIBUTION.** Contributions welcome, but please do not install this in your 
-database yet unless you really know what you're doing. 
+**THIS PROJECT IS NOT READY FOR DISTRIBUTION.** Contributions welcome, but there are a couple key features that
+aren't *quite* feasible yet.  
 
 ![Mapify Screenshot](https://github.com/TenthPres/TouchPointScripts/blob/master/.documentation/MapifyScreenshot.png?raw=true)
 
@@ -35,10 +35,10 @@ that process is complete.
     will install the script, and add the geocoding task to your morning batch.  The geocoding task will work through 
     your database around 1000 records per day, prioritizing those who have been active-ish recently.  This should keep
     geocoding costs within Google's free tier.  It will also add the report to your Blue Toolbar menu.
-1.  Optional: You may want to add the geocoding Extra Values as Standard Extra Values to prevent users from mistakenly 
+1.  Optional: You may want to add the geocoding Extra Values as Standard Extra Values to prevent users from errantly 
     modifying them.  The three Extra Value names used by default are `geoLat`,`geoLng`, and `geoHsh` and all use the 
     type "Text (single line)".  At Tenth, we have them restricted to the Developer role, because none of our users 
-    really need this.
+    really need this.  You can still query them in SQL without direct access, if you're into that.
 
 The 'Mapify' report probably won't be very useful until after a few days of geocoding.  You can check how many people 
 have been geocoded by creating a Search (Builder) searching for people who have an "Extra Value Text" Not Equal to "" 
