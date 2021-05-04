@@ -31,7 +31,7 @@ AcctTwo, our accounting firm.
 
 ## Tools Under Development
 
-- [**Mapify**](Mapify) - Wondering which neighborhoods need a new Small Groups?  Or where your attendees actually come from?  See 
+- [**Mapify**](Mapify) - Wondering which neighborhoods need a new Small Group?  Or where your attendees actually come from?  See 
 people from any search (or Involvement or any other scenario with a Blue Toolbar) on a highly-interactive globe of the world.
 
 - [**Summon Parent**](SummonParent) - This is a tool intended for children's workers to "summon" parents when needed.  We have it 
