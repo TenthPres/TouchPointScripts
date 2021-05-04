@@ -5,7 +5,7 @@ aren't *quite* feasible yet.
 
 ![Mapify Screenshot](https://github.com/TenthPres/TouchPointScripts/blob/master/.documentation/MapifyScreenshot.png?raw=true)
 
-Wondering which neighborhoods need a new Small Groups?  Or where your attendees actually come from?  See 
+Wondering which neighborhoods need a new Small Group?  Or where your attendees actually come from?  See 
 people from any search (or org or any other scenario with a Blue Toolbar) on a highly-interactive globe of the 
 world.
 
