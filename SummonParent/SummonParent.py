@@ -11,7 +11,7 @@ meetingQ = '''
         JOIN Organizations o ON m.OrganizationId = o.OrganizationId
         WHERE PeopleId = {} AND 
             a.AttendanceFlag = 1 AND 
-            ABS(DATEDIFF(mi, getDate()-1, m.MeetingDate)) < 14400 -- should be 1440 for 24 hours
+            ABS(DATEDIFF(dd, getDate()-1, m.MeetingDate)) < 1 -- should be 1440 for 24 hours
         ORDER BY ABS(DATEDIFF(mi, getDate()-1, m.MeetingDate)) ASC
 '''.format(model.UserPeopleId)
 
@@ -63,8 +63,8 @@ else:
     
         sendGroup = q.QuerySqlInt("SELECT TOP 1 ID from SmsGroups")  # TODO eventually: make this vaguely intelligent or something
     
-        # TODO change for model.Data.to
-        print model.SendSms('PeopleId = {}'.format(model.UserPeopleId), sendGroup, "Parent Summoning", model.Data.message)
+        # For testing, change model.Data.to to model.UserPeopleId to send the message to the active user.
+        print model.SendSms('PeopleId = {}'.format(model.Data.to), sendGroup, "Parent Summoning", model.Data.message)
     
     else:
     
@@ -75,12 +75,12 @@ else:
             print "<h3>{} {}</h3>".format(a.childGoesBy, a.childLast)
             
             if a.p1Cell != None and a.p1Cell != '':
-                print '''<a href="#" onclick="prepText({0}, '{1}', this);" class="btn btn-primary">Text {2} {3}</a>'''.format(a.p1Pid, a.childGoesBy, a.p1GoesBy, a.p1Last)
+                print '''<a href="#" onclick="prepText({0}, '{1}', this);" class="btn btn-primary">Text {2}</a>'''.format(a.p1Pid, a.childGoesBy, a.p1GoesBy)
                 
             if a.p2Cell != None and a.p2Cell != '':
-                print '''<a href="#" onclick="prepText({0}, '{1}', this);" class="btn btn-primary">Text {2} {3}</a>'''.format(a.p2Pid, a.childGoesBy, a.p2GoesBy, a.p2Last)
+                print '''<a href="#" onclick="prepText({0}, '{1}', this);" class="btn btn-primary">Text {2}</a>'''.format(a.p2Pid, a.childGoesBy, a.p2GoesBy)
             
-            print '''<a href="#" onclick="page({0});" class="btn btn-outline btn-default disabled">Page</a>'''.format(a.childPid)
+            #print '''<a href="#" onclick="page({0});" class="btn btn-outline btn-default disabled">Page</a>'''.format(a.childPid)
             
             print "</div>"
             
@@ -167,3 +167,4 @@ else:
         
         
         """
+#
