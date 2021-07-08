@@ -2,6 +2,7 @@
 from System import DateTime, String, Convert
 # noinspection PyUnresolvedReferences
 from System.Text.RegularExpressions import Regex, RegexOptions
+from pprint import pprint
 
 global q, model  # This line isn't necessary, but helps with using an IDE.
 
@@ -120,7 +121,7 @@ class BackgroundChecker:
         # PMM Submission
         if for_employment and self.statusExp['paEmp'] & bgc.Statuses['CHECK_STARTED'] == 0:
             items.append("submit_emp")
-        elif self.statusExp['paVol'] & bgc.Statuses['CHECK_STARTED'] == 0:
+        elif not for_employment and self.statusExp['paVol'] & bgc.Statuses['CHECK_STARTED'] == 0:
             items.append("submit_vol")
         elif self.statusExp['basic'] & bgc.Statuses['CHECK_STARTED'] == 0:
             items.append("submit_basic")
@@ -221,7 +222,7 @@ class BackgroundChecker:
                 if DateTime.Compare(check.Updated, self.Expirations['paVol']) > 0:
                     self.statusCur['paVol'] = self.statusCur['paVol'] | check_status
 
-            if check.ServiceCode == "Combo" or check.ServiceCode == "ComboPS":
+            if check.ServiceCode == "Combo" or check.ServiceCode == "ComboPS" or check.ServiceCode == "":
                 # Basic
 
                 self.statusHis['basic'] = self.statusHis['basic'] | check_status
@@ -485,6 +486,9 @@ elif model.HttpMethod == "get":
 
         elif 'submit_emp' in to_do or 'submit_vol' in to_do or 'submit_basic' in to_do:
             print "<div class=\"well\">"
+            
+            pprint(to_do)
+            
             print "<form method=\"POST\" action=\"/PyScriptForm/{}\">".format(model.ScriptName)
             print "<table><tbody>"
             print "<tr><td><p>You're all set for a mostly-automated renewal.  Click to continue.</p></td></tr>"
@@ -511,10 +515,9 @@ elif model.HttpMethod == "get":
             print "If you <b>have lived outside Pennsylvania within the last 10 years</b>, we will need you to get an" \
                   " FBI fingerprint check.  <a href=\"https://uenroll.identogo.com/workflows/1KG6ZJ/appointment/bio\"" \
                   " target=\"_blank\">Click here to enter your information and arrange a fingerprinting " \
-                  "appointment.</a>  Pennsylvania uses IdentoGo as a provider for this service.  Either make your " \
-                  "appointment at a location in PA (suggested), or use the \"Card Submission By Mail\" option, " \
-                  "which will provide instructions for completing a fingerprint card and submitting it back to " \
-                  "IdentoGo. Once you receive your certification in the mail, please scan it and upload it here. "
+                  "appointment.</a>  Pennsylvania uses IdentoGo as a provider for this service, and you will be " \
+                  "required to make an appointment at a location in PA.  A few weeks after your appointment, "\
+                  "your certification will be mailed to you.  Please scan it and upload it here. </div>"
             print "<!--<input type=\"file\" name=\"fbi\" />-->"
             print "<!--<input type=\"submit\" />-->"
             print "</div>"
@@ -524,10 +527,9 @@ elif model.HttpMethod == "get":
             print "<div class=\"well\">We need your FBI Fingerprinting clearance.  " \
                   "<a href=\"https://uenroll.identogo.com/workflows/1KG756/appointment/bio\"" \
                   " target=\"_blank\">Click here to enter your information and arrange a fingerprinting " \
-                  "appointment.</a>  Pennsylvania uses IdentoGo as a provider for this service.  Either make your " \
-                  "appointment at a location in PA (suggested), or use the \"Card Submission By Mail\" option, " \
-                  "which will provide instructions for completing a fingerprint card and submitting it back to " \
-                  "IdentoGo. Once you receive your certification in the mail, please scan it and upload it here. </div>"
+                  "appointment.</a>  Pennsylvania uses IdentoGo as a provider for this service, and you will be " \
+                  "required to make an appointment at a location in PA.  A few weeks after your appointment, "\
+                  "your certification will be mailed to you.  Please scan it and upload it here. </div>"
 
 
 elif model.HttpMethod == "post":
