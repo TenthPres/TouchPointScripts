@@ -20,6 +20,9 @@ overlap.
   
 - [**Global > Birthdays & Anniversaries**](Global%20Reports) - Generate a list of partners who have birthdays or 
 anniversaries coming up, and email it to the appropriate people.  We use this to send cards to partners each month.
+
+- [**Mailchimp Sync**](Mailchimp) - Sync Mailchimp subscribers both ways (from Mailchimp to TouchPoint and vice versa), 
+across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Subgroups.
   
 - [**Recent Communion**](RecentCommunion) - Indicate who has attended services where communion has been served.
 
@@ -41,9 +44,6 @@ the parent or the volunteer.  Eventually, we hope to integrate this with our pag
 - [**PA Background Check Automation**](BackgroundChecks) - Pennsylvania has weird and specific laws about how background 
 checks are conducted.  This tool tracks their progress, their renewals, and (so far as we are able within the law) automates 
 the process for both staff members and volunteers. 
-
-- [**Mailchimp Sync**](Mailchimp) - Sync Mailchimp subscribers both ways (from Mailchimp to TouchPoint and vice versa), 
-across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Subgroups.
 
 - [**ConstantContact Sync**](ConstantContact) - Sync ConstantContact subscribers both ways (from ConstantContact to 
 TouchPoint and vice versa). 
