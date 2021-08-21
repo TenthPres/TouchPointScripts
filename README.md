@@ -47,3 +47,6 @@ the process for both staff members and volunteers.
 
 - [**ConstantContact Sync**](ConstantContact) - Sync ConstantContact subscribers both ways (from ConstantContact to 
 TouchPoint and vice versa). 
+  
+- [**Tuition Automation**](TuitionAutomation) - Automatically calculate and bill tuition for ongoing programs (e.g. 
+  preschool).
