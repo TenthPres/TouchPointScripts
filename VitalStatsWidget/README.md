@@ -23,7 +23,7 @@ for customizing the searches you use here, as well.  For each search, there are 
 
     - **Link** *(optional)*- If you want the line to be a link to a specific page (e.g. the page where the search can be seen, put the relatively URL here.
 
-You can add as many searches as you want, just be sure to follow the format.
+    You can add as many searches as you want, just be sure to follow the format.
 
 1.  The widget is probably already on your homepage since this is a stock widget.  But, if it isn't, you should add it to the homepage.  From the 
 Admin > Homepage Widgets page, Add New.  Set the Name, Description and Roles as you wish.  Select the View and Python files that we created earlier.  

@@ -32,6 +32,8 @@ this doesn't remotely handle all the roles, it does handle those that are most i
 - [**Sage Intacct**](SageIntacct) - Create a reconciliation report that readily imports into Sage Intacct, as required by
 AcctTwo, our accounting firm. 
 
+- [**Vital Stats Widget** *With Bars!*](VitalStatsWidget) - Add a subtle bar chart to your Vital Stats widget. 
+
 ## Tools Under Development
 
 - [**Mapify**](Mapify) - Wondering which neighborhoods need a new Small Group?  Or where your attendees actually come from?  See 
