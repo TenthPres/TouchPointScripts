@@ -1,0 +1,58 @@
+<div class="box">
+    <style>
+        ul.stats-list li span.bar {
+            background-color: #49917b33;
+        	position: absolute;
+	        left: 0;
+	        bottom: 0;
+	        top: 0;
+	        z-index: 0;
+        }
+        ul.stats-list li a,
+        ul.stats-list li span:not(.bar) {
+	        position: relative;
+	        z-index: 10;
+        }
+    </style>
+    <div class="box-title hidden-xs" style="border:0;">
+        <h5>{{WidgetName}}</h5>
+    </div>
+    <a class="visible-xs-block" id="{{WidgetId}}-collapse" data-toggle="collapse" href="#{{WidgetId}}-section" aria-expanded="true" aria-controls="{{WidgetId}}-section">
+        <div class="box-title">
+            <h5><i class="fa fa-chevron-circle-right"></i>&nbsp;&nbsp;{{WidgetName}}</h5>
+        </div>
+    </a>
+    <div class="collapse in" id="{{WidgetId}}-section">
+        {{#ifGT results.Count 0}}
+            <ul class="list-group bordered stats-list">
+                {{#each results}}
+                    {{#ifEqual url "#"}}
+                        <li class="list-group-item">
+                            <span>{{name}}</span>
+                            <span style="float:right;">{{count}}</span>
+                            <span class="bar" style="width: calc(100% * {{count}} / {{{../../maxCnt}}});"></span>
+                        </li>
+                    {{else}}
+                        <li class="list-group-item">
+                            <a href="{{url}}">{{name}}</a>
+                            <a href="{{url}}" style="float:right;">{{count}}</a>
+                            <span class="bar" style="width: calc(100% * {{count}} / {{{../../maxCnt}}});"></span>
+                        </li>
+                    {{/ifEqual}}
+                {{/each}}
+                
+                <!-- IF YOU WANT TO INCLUDE A TOTAL, DELETE THIS WHOLE LINE AND THE PARTNER BELOW, BUT NOT THE STUFF BETWEEN
+                
+                <li class="list-group-item">
+                    <span style="font-weight:bold;">Total</span>
+                    <span style="float:right;font-weight:bold;">{{total}}</span>
+                </li>
+                
+                <!-- IF YOU WANT TO INCLUDE A TOTAL, DELETE THIS WHOLE LINE AND THE PARTNER ABOVE, BUT NOT THE STUFF BETWEEN -->
+                
+            </ul>
+        {{else}}
+            <div class="box-content"></div>
+        {{/ifGT}}
+    </div>
+</div>
