@@ -4,7 +4,7 @@ System we call "MyTenth."
 
 ## Tools Available Now
 
-- [**Assign Shepherd**](Assign Shepherd) - This tool allows leaders to be assigned as designated "shepherds" for a family.  
+- [**Assign Shepherd**](AssignShepherd) - This tool allows leaders to be assigned as designated "shepherds" for a family.  
 This shepherd can then be referenced in Tasks or when Counseling situations arise. 
 
 - [**ChangeLog**](ChangeLog) - This report lists the most recent changes made to a Person or Family.  It shows the person 
