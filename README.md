@@ -32,6 +32,9 @@ that ships with TouchPoint, which will use a sliding window of 90 days, rather t
   
 - [**Recent Communion**](RecentCommunion) - Indicate who has attended services where communion has been served.
 
+- [**Registrations in Progress**](RegistrationsInProgress) - Show the most recent 100 registrations that have been started but 
+not completed.  Can be very helpful in diagnosing issues users encounter with registrations. 
+
 - [**Role Checker**](RoleChecker) - Automatically update the roles users have as part of the Morning Batch process.  While
 this doesn't remotely handle all the roles, it does handle those that are most important for us and most likely to change.
 
