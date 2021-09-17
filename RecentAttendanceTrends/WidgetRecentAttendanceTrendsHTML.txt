@@ -1,0 +1,53 @@
+<div class="box">
+    <div class="box-title hidden-xs">
+        <h5>{{WidgetName}}</h5>
+    </div>
+    <a class="visible-xs-block" id="giving-fc-collapse" data-toggle="collapse" href="#{{WidgetId}}-section" aria-expanded="true" aria-controls="{{WidgetId}}-section">
+        <div class="box-title">
+            <h5>
+                <i class="fa fa-chevron-circle-right"></i>&nbsp;&nbsp;{{title}}
+            </h5>
+        </div>
+    </a>
+    <div class="collapse in" id="{{WidgetId}}-section">
+        <div class="box-content center">
+            <h4 class="text-center">{{title}}</h4>
+            <div class="chart">
+            </div>
+        </div>
+    </div>
+</div>
+<script type="text/javascript">
+    var {{WidgetId}} = function() {
+        var data = new google.visualization.DataTable();
+        data.addColumn('date', 'Sunday');
+        {{{addcolumns}}}
+        data.addRows({{{rowdata}}});
+        
+        var options = {
+            colors: ['#CC0300', '#5CA12B', '#345CAD', '#F9B710', '#9E4EBC', '#74746D'],
+            hAxis: {
+                format: 'M/d/yy',
+                title: 'Weeks',
+                slantedText: true,
+                slantedTextAngle: 30,
+                textStyle: {
+                    fontSize: 8
+                }
+            },
+            legend: {
+                position: "top",
+                textStyle: {fontSize: 8},
+                alignment: 'center'
+            }
+        
+        };
+        
+        var chart = new google.visualization.LineChart(document.querySelector('#{{WidgetId}}-section .chart'));
+        chart.draw(data, options);
+    }
+    // load and register the chart
+    google.charts.load("current", {packages:["corechart"]});
+    google.charts.setOnLoadCallback({{WidgetId}});
+    WidgetCharts.{{WidgetId}} = {{WidgetId}};
+</script>
