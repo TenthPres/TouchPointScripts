@@ -17,7 +17,8 @@ from System.Collections.Generic import Dictionary, List
 geoLatEV = "geoLat"
 geoLngEV = "geoLng"
 geoHashEV = "geoHsh"
-limit = 50
+limit = 500
+xhrLimit = 1000
 
 googleRegionBias = "us"
 
@@ -29,7 +30,7 @@ if model.FromMorningBatch or Data.action == "geocode":
     googleKey = model.Setting("GoogleGeocodeAPIKey", "")
 
     if model.FromMorningBatch:
-        limit = 1000
+        limit = 200
 
 
     def getGoogleGeocode(address):
@@ -99,7 +100,6 @@ if model.FromMorningBatch or Data.action == "geocode":
             (SELECT COUNT(*) FROM People pi 
                 LEFT JOIN Attend at ON pi.PeopleId = at.PeopleId 
                 LEFT JOIN Contactees ce ON pi.PeopleId = ce.PeopleId 
-                LEFT JOIN Contribution cn ON pi.PeopleId = cn.PeopleId 
                 LEFT JOIN OrganizationMembers om ON pi.PeopleId = om.PeopleId 
                 WHERE pi.PeopleId = p.PeopleId
                 ) Engagement
@@ -116,7 +116,6 @@ if model.FromMorningBatch or Data.action == "geocode":
         setHashes = List[str]()
 
         for qp in q.QuerySql(qSrc):
-            i += 1
 
             if setHashes.Contains(qp.Hash):
                 continue
@@ -142,6 +141,7 @@ if model.FromMorningBatch or Data.action == "geocode":
 
             for pid in peopleIds:
                 qo = "PeopleId = {} AND IncludeDeceased = 1".format(pid)
+                i += 1
                 if geo is None:
                     model.AddExtraValueText(qo, geoHashEV, qp.Hash)
                     model.DeleteExtraValue(qo, geoLatEV)
@@ -152,6 +152,8 @@ if model.FromMorningBatch or Data.action == "geocode":
                     model.AddExtraValueText(qo, geoLngEV, str(geo['lng']))
 
                 print "<p>{}  {}</p>".format(pid, qp.Hash)
+                
+        print "<p><b>done processing {} people</b></p>".format(i)
 
 
     doAGeocode()
@@ -160,13 +162,8 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
 
     mapData = model.DynamicData()
     mapData.cesiumKey = model.Setting("CesiumKey", "")
-    mapData.count = 0
-
-    try:  # TODO remove try (and catch) when PR 1370 is merged.
-        mapData.count = q.BlueToolbarCount()
-    except:
-        print "<script>console.warn(\"WARNING: PR 1370 has not been merged yet.\");</script>"
-        mapData.count = "unknown"
+    mapData.xhrLimit = xhrLimit
+    mapData.count = q.BlueToolbarCount()
 
     template = """
 
@@ -240,7 +237,7 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
 
     let entities = {},
         showCount = 0,
-        requestsNeeded = 1,
+        requestsNeeded = Math.ceil({{{count}}} / {{{xhrLimit}}}),
         colorAssignments = {},
         categoricalColors = [
             new Cesium.Color(0, 1, 0, 0.5),
@@ -380,8 +377,10 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
 
 elif model.Data.p != "":  # XHR Map Data Request
 
+    model.Data.p = int(model.Data.p)
+
     pts = Dictionary[str, Dictionary[str, object]]()
-    for p in q.BlueToolbarReport():
+    for p in q.BlueToolbarReport(None, xhrLimit, xhrLimit * (model.Data.p - 1)):
         lat = model.ExtraValueText(p.PeopleId, geoLatEV)
         lng = model.ExtraValueText(p.PeopleId, geoLngEV)
         hsh = model.ExtraValueText(p.PeopleId, geoHashEV)
