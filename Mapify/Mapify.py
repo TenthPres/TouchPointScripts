@@ -14,11 +14,7 @@ from System.Web.Script.Serialization import JavaScriptSerializer
 # noinspection PyUnresolvedReferences
 from System.Collections.Generic import Dictionary, List
 
-geoLatEV = "geoLat"
-geoLngEV = "geoLng"
-geoHashEV = "geoHsh"
-limit = 500
-xhrLimit = 1000
+xhrLimit = 500
 
 googleRegionBias = "us"
 
@@ -26,139 +22,7 @@ global Data, model, q
 
 model.Title = "Mapify"
 
-if model.FromMorningBatch or Data.action == "geocode":
-    googleKey = model.Setting("GoogleGeocodeAPIKey", "")
-
-    if model.FromMorningBatch:
-        limit = 200
-
-
-    def getGoogleGeocode(address):
-        params = {
-            'address': address,
-            'key': googleKey,
-            'region': googleRegionBias
-        }
-        req = "https://maps.googleapis.com/maps/api/geocode/json?" + urllib.urlencode(params)
-        geo = json.loads(model.RestGet(req, {}))
-
-        if len(geo['results']) < 1:
-            return None
-
-        else:
-            return {
-                'lat': geo['results'][0]['geometry']['location']['lat'],
-                'lng': geo['results'][0]['geometry']['location']['lng'],
-                'precision': geo['results'][0]['geometry']['location_type']
-            }
-
-
-    def getPeopleIdsForHash(h):
-        qSrc = """
-        -- noinspection SqlResolveForFile
-
-        SELECT TOP 100 pp.PeopleId
-        FROM (
-            SELECT 
-            p.PeopleId,
-            SUBSTRING(CONVERT(NVARCHAR(18), HASHBYTES('MD2', CONCAT(
-                COALESCE(p.AddressLineOne, f.AddressLineOne),
-                COALESCE(p.CityName, f.CityName),
-                COALESCE(p.StateCode, f.StateCode)
-                )), 1), 3, 8) Hash,
-            pe.Data as OldHash
-            FROM People p 
-                LEFT JOIN Families f on p.FamilyId = f.FamilyId
-                LEFT JOIN PeopleExtra pe ON pe.Field = '{0}' AND pe.PeopleId = p.PeopleId
-            ) pp 
-        WHERE pp.Hash = '{1}' AND pp.Hash <> pp.OldHash
-        """.format(geoHashEV, h)
-
-        return q.QuerySqlInts(qSrc)
-
-
-    def doAGeocode():
-        # Target List   TODO: remove geocodes for people who have removed their addresses
-        qSrc = """
-        -- noinspection SqlResolveForFile
-
-        SELECT TOP {1} * 
-        FROM (
-            SELECT 
-            p.PeopleId,
-            COALESCE(p.AddressLineOne, f.AddressLineOne) Addr1, 
-            COALESCE(p.AddressLineTwo, f.AddressLineTwo) Addr2,
-            COALESCE(p.CityName, f.CityName) City,
-            COALESCE(p.StateCode, f.StateCode) St,
-            COALESCE(p.CountryName, f.CountryName) Cn,
-            SUBSTRING(CONVERT(NVARCHAR(18), HASHBYTES('MD2', CONCAT(
-                COALESCE(p.AddressLineOne, f.AddressLineOne),
-                COALESCE(p.CityName, f.CityName),
-                COALESCE(p.StateCode, f.StateCode)
-                )), 1), 3, 8) Hash,
-            pe.Data as OldHash,
-            (SELECT COUNT(*) FROM People pi 
-                LEFT JOIN Attend at ON pi.PeopleId = at.PeopleId 
-                LEFT JOIN Contactees ce ON pi.PeopleId = ce.PeopleId 
-                LEFT JOIN OrganizationMembers om ON pi.PeopleId = om.PeopleId 
-                WHERE pi.PeopleId = p.PeopleId
-                ) Engagement
-            FROM People p 
-                LEFT JOIN Families f on p.FamilyId = f.FamilyId
-                LEFT JOIN PeopleExtra pe ON pe.Field = '{0}' AND pe.PeopleId = p.PeopleId
-            ) pp 
-        WHERE pp.Addr1 IS NOT NULL AND (pp.Hash <> pp.OldHash OR pp.OldHash IS NULL)
-        ORDER BY pp.Engagement Desc
-        """.format(geoHashEV, limit)
-
-        i = 0
-
-        setHashes = List[str]()
-
-        for qp in q.QuerySql(qSrc):
-
-            if setHashes.Contains(qp.Hash):
-                continue
-
-            setHashes.Add(qp.Hash)
-
-            peopleIds = getPeopleIdsForHash(qp.Hash)
-            if not peopleIds.Contains(qp.PeopleId):
-                peopleIds.Add(qp.PeopleId)
-
-            p = model.GetPerson(qp.PeopleId)
-
-            country = p.CountryName or ""
-
-            if p.CityName is None and p.ZipCode is None:
-                # If able to use Family EVs, switch to use Family here.
-                country = p.Family.CountryName or ""
-
-            address = (p.FullAddress + " " + country).strip()
-
-            geo = getGoogleGeocode(address)
-            print "<p><b>{}</b></p>".format(geo)
-
-            for pid in peopleIds:
-                qo = "PeopleId = {} AND IncludeDeceased = 1".format(pid)
-                i += 1
-                if geo is None:
-                    model.AddExtraValueText(qo, geoHashEV, qp.Hash)
-                    model.DeleteExtraValue(qo, geoLatEV)
-                    model.DeleteExtraValue(qo, geoLngEV)
-                else:
-                    model.AddExtraValueText(qo, geoHashEV, qp.Hash)
-                    model.AddExtraValueText(qo, geoLatEV, str(geo['lat']))
-                    model.AddExtraValueText(qo, geoLngEV, str(geo['lng']))
-
-                print "<p>{}  {}</p>".format(pid, qp.Hash)
-                
-        print "<p><b>done processing {} people</b></p>".format(i)
-
-
-    doAGeocode()
-
-elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
+if model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
 
     mapData = model.DynamicData()
     mapData.cesiumKey = model.Setting("CesiumKey", "")
@@ -205,7 +69,7 @@ elif model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
             duration: 4
         });
     };
-    
+
     function clearInfobox() {
         viewer.infoBox.frame.contentDocument.body.removeChild(viewer.infoBox.frame.contentDocument.body.firstChild)
         viewer.infoBox.frame.removeEventListener('load', clearInfobox);
@@ -379,11 +243,15 @@ elif model.Data.p != "":  # XHR Map Data Request
 
     model.Data.p = int(model.Data.p)
 
+    geoSql = "SELECT g.id geoId, g.Latitude lat, g.Longitude lng FROM People p LEFT JOIN Geocodes g ON g.Address = CONCAT(p.PrimaryAddress, ' ', p.PrimaryAddress2, ' ', p.PrimaryCity, ' ', p.PrimaryState , ' ', p.PrimaryZip) WHERE p.PeopleId = {}"
+
     pts = Dictionary[str, Dictionary[str, object]]()
     for p in q.BlueToolbarReport(None, xhrLimit, xhrLimit * (model.Data.p - 1)):
-        lat = model.ExtraValueText(p.PeopleId, geoLatEV)
-        lng = model.ExtraValueText(p.PeopleId, geoLngEV)
-        hsh = model.ExtraValueText(p.PeopleId, geoHashEV)
+        geo = q.QuerySqlTop1(geoSql.format(p.PeopleId))
+
+        lat = geo.lat
+        lng = geo.lng
+        hsh = "{}|{}".format(geo.lat, geo.lng)
 
         if lat == "" or lng == "":
             continue
@@ -436,7 +304,7 @@ elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != 
             LEFT JOIN PeopleExtra pe ON pe.Field = '{0}' AND pe.PeopleId = p.PeopleId
     WHERE pe.Data = '{1}' AND p.FamilyId NOT IN ({2})
     ORDER BY includedFamily DESC, p.FamilyId ASC, includedPerson DESC, p.PositionInFamilyId
-    """.format(geoHashEV, model.Data.hsh, includedFams, includedPeop)
+    """.format("null", model.Data.hsh, includedFams, includedPeop)  # TODO rework for new geocoding
 
     famId = 0
     out = '''
@@ -495,3 +363,5 @@ elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != 
     out += "</div></div>"
 
     print "<!-- >>>>>DATA>" + out + "<DATA<<<<< -->"
+
+#
