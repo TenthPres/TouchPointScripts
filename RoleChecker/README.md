@@ -1,6 +1,6 @@
 # Role Checker
 
-** NOTE: Unlike most of the scripts in this repository, this will require significant customization before it can be 
+**NOTE: Unlike most of the scripts in this repository, this will require significant customization before it can be 
 adapted for other churches.**
 
 This script, run as part of our Morning Batch, make sure the right people have the right permissions. While this does 
