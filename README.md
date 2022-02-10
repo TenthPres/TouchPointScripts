@@ -45,6 +45,9 @@ AcctTwo, our accounting firm.
 
 ## Tools Under Development
 
+
+- [**AD Sync**](ADSync) - Automatically sync your church directory into your staff's email & contact directory.
+
 - [**Mapify**](Mapify) - Wondering which neighborhoods need a new Small Group?  Or where your attendees actually come from?  See 
 people from any search (or Involvement or any other scenario with a Blue Toolbar) on a highly-interactive globe of the world.
 
