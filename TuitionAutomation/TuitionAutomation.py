@@ -9,8 +9,8 @@ print "<a href=\"/RunScript/TuitionSummary/\">View Balances</a><br />"
 print "<a href=\"/RunScript/TuitionProgramTotals/\">Program Totals</a><br />"
 
 paylinks = {
-    "4932":"C7GDbkfC%2fQc%3d",
-    "9452":"WxqBWPVAYqA%3d",
+    "4932":"xxxxxxxxxxxxxx",
+    "9452":"xxxxxxxxxxxxxx",
 }
 
 # model.TestEmail = True
