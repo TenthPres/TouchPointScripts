@@ -4,6 +4,8 @@ System we call "MyTenth."
 
 ## Tools Available Now
 
+- [**Attendance Redirect**](AttendanceRedirect) - This tool helps get people to the right Registration for Record Family Attendance.
+
 - [**Assign Shepherd**](AssignShepherd) - This tool allows leaders to be assigned as designated "shepherds" for a family.  
 This shepherd can then be referenced in Tasks or when Counseling situations arise. 
 
