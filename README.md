@@ -9,9 +9,6 @@ System we call "MyTenth."
 - [**Assign Shepherd**](AssignShepherd) - This tool allows leaders to be assigned as designated "shepherds" for a family.  
 This shepherd can then be referenced in Tasks or when Counseling situations arise. 
 
-- [**ChangeLog**](ChangeLog) - This report lists the most recent changes made to a Person or Family.  It shows the person 
-making the change, the person to whom the change was made, and the content of the changes.
-
 - [**Email Address Archiving**](EmailAddressArchiving) - TouchPoint can only store two email addresses per user.  While most
 people probably only use one or two email addresses at a time, it can be helpful to keep track of all of the email addresses
 someone uses across time.  This script allows many more email addresses to be immutably associated with a person's record,
@@ -53,10 +50,6 @@ AcctTwo, our accounting firm.
 - [**Mapify**](Mapify) - Wondering which neighborhoods need a new Small Group?  Or where your attendees actually come from?  See 
 people from any search (or Involvement or any other scenario with a Blue Toolbar) on a highly-interactive globe of the world.
 
-- [**Summon Parent**](SummonParent) - This is a tool intended for children's workers to "summon" parents when needed.  We have it 
-linked within the Mobile App, so workers can send a text in just a few taps, without revealing the personal phone number of either 
-the parent or the volunteer.  Eventually, we hope to integrate this with our pager system, as well. 
-
 - [**PA Background Check Automation**](BackgroundChecks) - Pennsylvania has weird and specific laws about how background 
 checks are conducted.  This tool tracks their progress, their renewals, and (so far as we are able within the law) automates 
 the process for both staff members and volunteers. 
@@ -66,3 +59,14 @@ TouchPoint and vice versa).
   
 - [**Tuition Automation**](TuitionAutomation) - Automatically calculate and bill tuition for ongoing programs (e.g. 
   preschool).
+
+## Tools No Longer Necessary
+Occasionally, the TouchPoint team redevelops tools we've created in Python as genuine features in the main TouchPoint system.  When that happens,
+our OG tool becomes unnecessary.  But, for posterity, here are those tools:
+
+- [**ChangeLog**](ChangeLog) - This report lists the most recent changes made to a Person or Family.  It shows the person 
+making the change, the person to whom the change was made, and the content of the changes.
+
+- [**Summon Parent**](SummonParent) - This is a tool intended for children's workers to "summon" parents when needed.  We have it 
+linked within the Mobile App, so workers can send a text in just a few taps, without revealing the personal phone number of either 
+the parent or the volunteer.  Eventually, we hope to integrate this with our pager system, as well. 
