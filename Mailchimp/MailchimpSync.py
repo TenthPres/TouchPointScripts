@@ -5,30 +5,25 @@ import json
 from datetime import datetime, date, timedelta
 from pprint import pprint
 
-# The accounts list should be a list of the Mailchimp accounts you wish to import.
+# The accounts list should be a list of the MailChimp accounts you wish to import.
 # The mcUser is the username (or email) you use to sign in to Mailchimp.
-# The mcApiKey is the API Key from the Mailchimp UI (See Touchpoint's instructions for how to get that).  The -usX
-#               suffix must be included on the end, as that indicates which server should be used for the API.
+# The mcApiKey is the API Key from the Mailchimp UI (See Touchpoint's instructions for how to get that).  The -usX suffix must be
+#               included on the end, as that indicates which server should be used for the API.
 # The orgId is one of the following:
-#   - a number - The org Id number of the org you want current subscribers to be imported into. If you only have one
-#               list in the Mailchimp account, this will be fine.
-#   - None -    This creates a new org for the purpose.  It will give the org an extra value that links it to the
-#               Mailchimp list, so that if you run the import again, it won't create a new list again.
+#   - a number - The org Id number of the org you want current subscribers to be imported into. If you only have one list in the
+#               Mailchimp account, this will be fine.
+#   - None -    This creates a new org for the purpose.  It will give the org an extra value that links it to the MailChimp list,
+#               so that if you run the import again, it won't create a new list again.
 #
-#               If you have multiple lists in a single account, set orgId as None to have all new involvements created,
-#               or add the extra value "MailchimpListId" as the 10-digit hex ID Mailchimp uses as a list ID.
+#               If you have multiple lists in a single account, set orgId as None to have all new orgs created, or add the extra
+#               value "MailChimpListId" as the 10-digit hex ID Mailchimp uses as a list ID.
 
 accounts = [
-   {
-       "mcUser": "xxxxxxxxxxxx",
-       "mcApiKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-usX",
-       "orgId": None
-   },
-   {
-       "mcUser": "xxxxxxxxxxxx",
-       "mcApiKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-usX",
-       "orgId": None
-   }
+    #    {
+    #        "mcUser": "xxxxxxxxxxxx",
+    #        "mcApiKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-usX",
+    #        "orgId": None
+    #    }
 ]
 
 # Give an OrgId to use as a template for new Involvements that may be created with the import.
@@ -48,8 +43,8 @@ categoryInterestSeparator = " :: "
 
 # The TouchPoint PeopleId will be saved into a Merge field in TouchPoint.  This allows future syncs to run more
 # efficiently. If you would like to change the name of the merge field, do so here.  You probably do not need to change
-# this.
-peopleIdMergeName = "TP_pid"
+# this.  Must be all-caps. 
+peopleIdMergeName = "TP_PID"
 
 # Great job. That's all the setup you need to do.
 
@@ -60,7 +55,7 @@ headers = {'content-type': 'application/json'}
 model.Title = "Mailchimp Sync"
 
 
-def DateTimeFromIso(dtStr):  # TODO Replace with native if TouchPoint upgrades Python to 3.2+  Or, use a C# method.
+def DateTimeFromIso(dtStr):  # Replace with native if TouchPoint upgrades Python to 3.2+  Or, use a C# method.
     # parse the date/time
     return datetime.strptime(dtStr, '%Y-%m-%dT%H:%M:%S')  # Assumes UTC!
 
@@ -140,7 +135,7 @@ def SyncPersonMailchimpToTouchPoint(m, l, peopleId):
             print " - cleaned</p>"
             model.DropOrgMember(peopleId, l['orgId'])
 
-        # TODO Possibly remove email address from any profile that has it.
+        # Potentially, cleaned addresses should be removed from TouchPoint records.  This is where to do that.
 
     # Note: Contacts with Mailchimp status 'pending' are imported as People records, but are not added to the Org
 
@@ -165,6 +160,11 @@ def SyncPersonTouchPointToMailchimp(emailAddress, l, p, transaction=None):
         'email_address': emailAddress,
         'status': None
     }
+    
+    # Skip cases where the person has probably already been synced. 
+    if transaction is not None:
+        if l['mcLastUpdated'] >= transaction.TransactionDate:
+            return None
 
     # Subscribed - Either current, non-pending member, or
     if transaction is None \
@@ -201,9 +201,10 @@ def SyncMailchimpMember(m, l):
     # Find or Create Mailchimp Member in TouchPoint
     peopleId = None
     if peopleIdMergeName in m['merge_fields'] and m['merge_fields'][peopleIdMergeName] is not '':
-        peopleId = m['merge_fields'][peopleIdMergeName]  # TODO: verify that this ID corresponds to a current person.
+        peopleId = m['merge_fields'][peopleIdMergeName]
 
         # Make sure PeopleID is actually valid
+        # noinspection SqlResolve
         peopleId = q.QuerySqlTop1("SELECT PeopleId from People WHERE PeopleId = {}".format(peopleId))
 
         if peopleId is not None:
@@ -303,7 +304,9 @@ def SyncMailchimpMember(m, l):
     if mcUpdated > tpUpdated:
         return SyncPersonMailchimpToTouchPoint(m, l, peopleId)
     else:
-        return SyncPersonTouchPointToMailchimp(m['email_address'], l, model.GetPerson(peopleId), lastTransaction)
+        update = SyncPersonTouchPointToMailchimp(m['email_address'], l, model.GetPerson(peopleId), lastTransaction)
+        if update is not None:
+            return update
 
 
 def SubmitMailchimpUpdate(l):
@@ -315,6 +318,8 @@ def SubmitMailchimpUpdate(l):
         'members': updatesForMailchimp[:500],
         'update_existing': True
     }
+    
+    print RestPost(updateEndpoint, l, data)
 
     return
 
@@ -361,9 +366,6 @@ def SyncListFromTouchPoint(l, mcEmails):
         if skip:
             continue
 
-        print "<p>This person needs to be imported to Mailchimp: {} {}</p>".format(m.PreferredName, m.LastName)
-        pprint(m)
-
         if m.EmailAddress is None and m.EmailAddress2 is not None \
                 or m.SendEmailAddress1 is False and m.EmailAddress2 is not None and m.SendEmailAddress2 is not False:
             emailAddress = m.EmailAddress2
@@ -371,8 +373,10 @@ def SyncListFromTouchPoint(l, mcEmails):
             emailAddress = m.EmailAddress
 
         update = SyncPersonTouchPointToMailchimp(emailAddress, l, m)
-        EnqueueMailchimpUpdate(l, update)
-        ret.append(update)
+        if update is not None:
+            print "<p>This person needs to be imported to Mailchimp: {} {}</p>".format(m.PreferredName, m.LastName)
+            EnqueueMailchimpUpdate(l, update)
+            ret.append(update)
 
     return ret
 
@@ -418,7 +422,7 @@ def EnqueueMailchimpUpdate(l, update):
 
 def SyncLists():
     # noinspection SqlResolve
-    listsSql = '''SELECT
+    listsSql = '''SELECT TOP 1
     o.OrganizationId AS orgId, 
     o.OrganizationName AS name, 
     oe1.Data AS mcLoginId, 
@@ -429,7 +433,7 @@ def SyncLists():
         JOIN OrganizationExtra oe1 ON oe1.OrganizationId = o.OrganizationId AND oe1.Field = 'MailchimpLoginId'
         JOIN OrganizationExtra oe2 ON oe2.OrganizationId = o.OrganizationId AND oe2.Field = 'MailchimpListId'
         LEFT JOIN OrganizationExtra oe3 ON oe3.OrganizationId = o.OrganizationId AND oe3.Field = 'MailchimpLastUpdated'
-    ORDER BY RAND()
+    --ORDER BY RAND()
         '''
 
     for ls in q.QuerySql(listsSql):
@@ -459,28 +463,6 @@ def SyncLists():
         updatesForMailchimp = []  # reset before next loop
 
         model.AddExtraValueDateOrg(l['orgId'], "MailchimpLastUpdated", date.today() - timedelta(days=1))
-
-
-def SyncAccount(a):
-    endpoint = GetEndpoint(a)
-
-    # Determine login_id and save API Key to Settings if it isn't there already.
-    accountInfo = RestGet(endpoint, a)
-
-    if 'status' in accountInfo:
-        print("<h2>The account {0} returned an error: {1}</h2>".format(a['mcUser'], accountInfo['detail']))
-        return
-
-    a['login_id'] = accountInfo['login_id']
-    settingKey = "MailChimpApiKey_{0}".format(a['login_id'])
-    if model.Setting(settingKey) != a['mcApiKey']:
-        model.SetSetting(settingKey, a['mcApiKey'])
-
-    # Iterate through the lists
-    getListsUrl = endpoint + "lists/?fields=lists.id,lists.name"
-    lists = RestGet(getListsUrl, a)
-    for li, l in enumerate(lists['lists']):
-        SyncListOld(l, li, a)
 
 
 def ImportList(l, li, a):
@@ -513,9 +495,6 @@ def ImportList(l, li, a):
 
 
 def ImportAccount(a):
-    # TODO check to see if account is already loaded.  If so, we can skip this and all API overhead.
-    return
-
     endpoint = GetEndpoint(a)
 
     # Determine login_id and save API Key to Settings if it isn't there already.
@@ -542,8 +521,8 @@ def ImportAccounts():
         ImportAccount(a)
 
 
-# if importLists == True or (importLists == None and not model.FromMorningBatch):
-#    ImportAccounts()
+if importLists is True or (importLists is None and not model.FromMorningBatch):
+    ImportAccounts()
 SyncLists()
 
 #
