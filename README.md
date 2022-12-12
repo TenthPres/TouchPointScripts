@@ -35,6 +35,9 @@ anniversaries coming up, and email it to the appropriate people.  We use this to
 - [**Incoming Email**](IncomingEmail) - Process emails sent to a particular inbox.  This script is called by Power Automate, which 
 does the actual email-handling.  We use this to collect Prayer Requests. 
 
+- [**Link Generator**](LinkGenerator) - This simple script generates an authenticated link for a given user, which can be very helpful
+when supporting users.  This allows you to help them effectively bypass their login process and get directly to the content they need. 
+
 - [**Mailchimp Sync**](Mailchimp) - Sync Mailchimp subscribers both ways (from Mailchimp to TouchPoint and vice versa), 
 across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Subgroups.
 
