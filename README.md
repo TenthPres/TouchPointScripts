@@ -13,6 +13,8 @@ This shepherd can then be referenced in Tasks or when Counseling situations aris
 Children's Involvements have their proper Extra Values applied, such as the MinistrySafe and Background check heart and checkmark 
 icons on volunteer nametags. 
 
+- [**Classroom Redirect**](ClassroomRedirect) - This tool makes it easier for volunteers to access their Classroom Dashboards. 
+
 - [**Email Address Archiving**](EmailAddressArchiving) - TouchPoint can only store two email addresses per user.  While most
 people probably only use one or two email addresses at a time, it can be helpful to keep track of all of the email addresses
 someone uses across time.  This script allows many more email addresses to be immutably associated with a person's record,
