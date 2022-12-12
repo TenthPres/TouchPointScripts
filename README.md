@@ -30,6 +30,10 @@ anniversaries coming up, and email it to the appropriate people.  We use this to
 - [**Mailchimp Sync**](Mailchimp) - Sync Mailchimp subscribers both ways (from Mailchimp to TouchPoint and vice versa), 
 across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Subgroups.
 
+- [**Non-Weekly Meetings**](NonweeklyMeetings) - This script, when added to your Morning Batch, automatically creates meetings for 
+non-weekly Involvements based on Extra Values on the Involvement. Once the meetings are created, automatic attendance reminders will
+be sent. 
+
 - [**Recent Attendance Trends**](RecentAttendanceTrends) - This is a minor update from the standard Recent Attendance Trends widget
 that ships with TouchPoint, which will use a sliding window of 90 days, rather than a date you need to set. 
   
