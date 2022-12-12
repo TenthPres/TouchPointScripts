@@ -15,6 +15,9 @@ icons on volunteer nametags.
 
 - [**Classroom Redirect**](ClassroomRedirect) - This tool makes it easier for volunteers to access their Classroom Dashboards. 
 
+- [**Demographic Analysis**](DemographicAnalysis) - This Blue Toolbar report readily allows you to see the basic breakdown of demographic
+groups, like age groups and Resident Codes for any situation where you see a Blue Toolbar. 
+
 - [**Email Address Archiving**](EmailAddressArchiving) - TouchPoint can only store two email addresses per user.  While most
 people probably only use one or two email addresses at a time, it can be helpful to keep track of all of the email addresses
 someone uses across time.  This script allows many more email addresses to be immutably associated with a person's record,
