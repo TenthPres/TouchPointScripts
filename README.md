@@ -9,6 +9,10 @@ System we call "MyTenth."
 - [**Assign Shepherd**](AssignShepherd) - This tool allows leaders to be assigned as designated "shepherds" for a family.  
 This shepherd can then be referenced in Tasks or when Counseling situations arise. 
 
+- [**Children's Involvement Rules**](Children's Involvement Rules) - When added to your daily batch, this script will make sure any
+Children's Involvements have their proper Extra Values applied, such as the MinistrySafe and Background check heart and checkmark 
+icons on volunteer nametags. 
+
 - [**Email Address Archiving**](EmailAddressArchiving) - TouchPoint can only store two email addresses per user.  While most
 people probably only use one or two email addresses at a time, it can be helpful to keep track of all of the email addresses
 someone uses across time.  This script allows many more email addresses to be immutably associated with a person's record,
