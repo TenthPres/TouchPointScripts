@@ -40,6 +40,8 @@ this doesn't remotely handle all the roles, it does handle those that are most i
 - [**Sage Intacct**](SageIntacct) - Create a reconciliation report that readily imports into Sage Intacct, as required by
 AcctTwo, our accounting firm. 
 
+- [**Scheduler**](Scheduler) - A few scripts to fill gaps in getting data out of the Volunteer Scheduler. 
+
 - [**Vital Stats Widget** *With Bars!*](VitalStatsWidget) - Add a subtle bar chart to your Vital Stats widget. 
 
 ## Tools Under Development
