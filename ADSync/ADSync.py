@@ -28,5 +28,3 @@ for p in contactList:
         "homePhone": p.Family.HomePhone
     }
     Data.contacts.append(ret)
-    
-#print Data.contacts
