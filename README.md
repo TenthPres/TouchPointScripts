@@ -28,9 +28,12 @@ Mailchimp and ConstantContact integrations.
 overlap.
   
 - [**Finance > Budget Summary**](Finance%20Reports) - List each budgeted fund and where giving stands compared to budget.
-  
+
 - [**Global > Birthdays & Anniversaries**](Global%20Reports) - Generate a list of partners who have birthdays or 
 anniversaries coming up, and email it to the appropriate people.  We use this to send cards to partners each month.
+
+- [**Incoming Email**](IncomingEmail) - Process emails sent to a particular inbox.  This script is called by Power Automate, which 
+does the actual email-handling.  We use this to collect Prayer Requests. 
 
 - [**Mailchimp Sync**](Mailchimp) - Sync Mailchimp subscribers both ways (from Mailchimp to TouchPoint and vice versa), 
 across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Subgroups.
@@ -38,6 +41,9 @@ across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Su
 - [**Non-Weekly Meetings**](NonweeklyMeetings) - This script, when added to your Morning Batch, automatically creates meetings for 
 non-weekly Involvements based on Extra Values on the Involvement. Once the meetings are created, automatic attendance reminders will
 be sent. 
+
+- [**Prayer List**](Prayer List) - This simple script shows a list of prayer requests (notes with a specific tag) that have been submitted
+in the last week. The page automatically reloads every few seconds because we use this for live submissions during a worship service.
 
 - [**Recent Attendance Trends**](RecentAttendanceTrends) - This is a minor update from the standard Recent Attendance Trends widget
 that ships with TouchPoint, which will use a sliding window of 90 days, rather than a date you need to set. 
