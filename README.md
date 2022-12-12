@@ -24,8 +24,14 @@ someone uses across time.  This script allows many more email addresses to be im
 making future data imports significantly less likely to produce duplicates.  This script is strongly encouraged for the 
 Mailchimp and ConstantContact integrations. 
 
+- [**Engagement**](Engagement) - This blue toolbar report shows you what enagement people may have recently, particularly useful if they're
+potentially falling through the cracks. 
+
 - [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
 overlap.
+
+- [**Family Attendance**](Family Attendance) - Generates a relatively simple attendance sheet intended for printing, for families to mark 
+their attendnance together. 
   
 - [**Finance > Budget Summary**](Finance%20Reports) - List each budgeted fund and where giving stands compared to budget.
 
