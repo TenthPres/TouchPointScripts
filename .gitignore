@@ -1,2 +1,6 @@
 .Builds
 package-lock.json
+
+node_modules/
+*.psd
+.idea/
