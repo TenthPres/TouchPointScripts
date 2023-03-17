@@ -38,6 +38,29 @@ elif "asprayer@tenth.org" in Data.To:
     else:
         model.CreateTaskNote(Data.FromPid, Data.FromPid, None, None, True, None, noteBody, None, [7, 59])
         print "Your prayer request has been submitted.  Thank you."
+        
+elif "care@tenth.org" in Data.To:
+    noteBody = ""
+    if Data.Subject != "":
+        noteBody = "**" + Data.Subject + ":**  "
+    
+    noteBody += Data.Body
+    
+    owner = 29218
+    
+    if Data.FromPid == 0:
+        noteBody += """
+        
+        Submitted by {}""".format(Data.From)
+        
+        Data.FromPid = unknownUserPid
+        
+        model.CreateTaskNote(owner, Data.FromPid, None, 55, False, noteBody, None, None, [29], True)
+        print "Thank you.  We'll be in touch shortly.  We don't have your email address on file.  Please reply with your name."
+        
+    else:
+        model.CreateTaskNote(owner, Data.FromPid, None, 55, False, noteBody, None, None, [29], True)
+        print "Thank you.  We'll be in touch shortly."
 
 
 # Unknown cases
