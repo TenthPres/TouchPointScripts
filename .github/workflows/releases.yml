@@ -18,7 +18,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           generate_release_notes: true
-          draft: true
+          draft: false
           prerelease: false
           name: Build ${{ github.sha }}
           files: |
