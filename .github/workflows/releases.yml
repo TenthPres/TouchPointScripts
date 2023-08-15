@@ -14,14 +14,19 @@ jobs:
         uses: actions/checkout@v2
       - run: npm install
       - run: npm run build
+      - name: Generate release tag
+        id: tag
+        run: |
+          echo "::set-output name=release_tag::$(date +"%Y.%m.%d_%H-%M")"
+          echo "::set-output name=release_name::$(date +"%Y.%m.%d %H:%M")"
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
           generate_release_notes: true
           draft: false
           prerelease: false
-          tag_name: ${{ github.sha }}
-          name: Build ${{ github.sha }}
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          name: Build ${{ steps.tag.outputs.release_name }}
           files: |
             .Builds/Mapify.zip
             .Builds/TuitionAutomation.zip
