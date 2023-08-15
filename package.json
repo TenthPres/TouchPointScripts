@@ -4,7 +4,8 @@
   "description": "This is a collection of scripts, widgets, and other handy bits for use with TouchPoint Software, the Church Management System we call \"MyTenth.\"",
   "main": "gulpfile.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "gulp"
   },
   "repository": {
     "type": "git",

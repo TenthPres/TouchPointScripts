@@ -1,0 +1,25 @@
+name: Create Release
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - run: npm run build
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          draft: true
+          prerelease: false
+          name: Build ${{ github.sha }}
+          files: |
+            .Builds/Mapify.zip
+            .Builds/TuitionAutomation.zip
