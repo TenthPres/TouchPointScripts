@@ -20,6 +20,7 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          tag_name: ${{ github.sha }}
           name: Build ${{ github.sha }}
           files: |
             .Builds/Mapify.zip
