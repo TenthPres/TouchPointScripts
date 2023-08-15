@@ -3,14 +3,8 @@ from datetime import datetime
 from datetime import timedelta
 import urllib
 
-print "<a href=\"?view=assess\">Assess Next Due Amount</a><br />"
-print "<a href=\"?view=emails\">Generate Email Previews</a><br />"
-print "<a href=\"/RunScript/TuitionSummary/\">View Balances</a><br />"
-print "<a href=\"/RunScript/TuitionProgramTotals/\">Program Totals</a><br />"
-
-# model.TestEmail = True
-model.Transactional = True
-
+paymentOrgId = 51
+minTransactionId = 17000
 
 orgs = [
     {
@@ -72,10 +66,17 @@ orgs = [
     # }
     ]
 
-paymentOrgId = 51
-minTransactionId = 17000
+# #################  Basic configuration ends here. #########################
+
+
+print "<a href=\"?view=assess\">Assess Next Due Amount</a><br />"
+print "<a href=\"?view=emails\">Generate Email Previews</a><br />"
+print "<a href=\"/RunScript/TuitionSummary/\">View Balances</a><br />"
+print "<a href=\"/RunScript/TuitionProgramTotals/\">Program Totals</a><br />"
+
+# model.TestEmail = True
+model.Transactional = True
 isDeposit = False
-retroactive = True
 
 model.CurrentOrgId = paymentOrgId
 
