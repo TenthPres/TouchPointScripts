@@ -30,3 +30,4 @@ jobs:
           files: |
             .Builds/Mapify.zip
             .Builds/TuitionAutomation.zip
+            .Builds/NonweeklyMeetings.zip

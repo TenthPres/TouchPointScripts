@@ -13,6 +13,11 @@ function buildEverything(cb) {
 		.pipe(zip('TuitionAutomation.zip'))
 		.pipe(gulp.dest('.Builds'));
 
+	// Non-Weekly Meetings Only
+	gulp.src(['NonweeklyMeetings/*.py', "NonweeklyMeetings/keyword"])
+		.pipe(zip('NonweeklyMeetings.zip'))
+		.pipe(gulp.dest('.Builds'));
+
 	cb();
 }
 
