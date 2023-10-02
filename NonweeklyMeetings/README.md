@@ -1,10 +1,10 @@
 # Non-Weekly Meetings
 
-This script creates meetings (and therefore causes attendance reminders to be sent) for Involvments that don't meet weekly.  To use this, install the script, and add it to your Morning Batch.
+This script creates meetings (and therefore causes attendance reminders to be sent) for Involvements that don't meet weekly.  To use this, install the script, and add it to your Morning Batch.
 
 ## Installation
 1.  Download the NonweeklyMeetings zip file from [the releases](https://github.com/TenthPres/TouchPointScripts/releases) 
-    and install it at `mychurch.tpsdb.com/InstallPyScriptProject`.  This
+    and upload the whole zip file to `mychurch.tpsdb.com/InstallPyScriptProject`.  This
     will install the script, and add the meeting creation script to the morning batch. 
 
 ## Usage
