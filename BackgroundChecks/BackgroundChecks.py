@@ -12,14 +12,13 @@ checkCode = "ComboPS"
 employeeOrgId = 61
 stateCode = "PA"
 
-affidFlowTriggerUrl = "https://prod-02.westus.logic.azure.com:443/workflows/2f05980be1e64670b6b38cf705a85713/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=DIJ7e0sGiMjDyL_7EZRjhgR6mS7zK-ef65GAANZ_iZM"
 affidEv = "ds-Resident Affidavit"
 
 people_needing_checks = '''
     IsProspectOf( Org={0} ) = 1[True]
     OR IsMemberOf( Org={0} ) = 1[True]
     OR MemberTypeCodes( Div=19[Children's Bible School] ) IN ( {1} )
-    OR PmmBackgroundCheckStatus(  ) IN ( '0,Error', '1,Not Submitted', '2,Submitted', '3,Complete' )
+    OR IsMemberOf( Org=254[Nursery Volunteers] ) = 1[True]
 '''.format(employeeOrgId, ','.join(map(str, q.QuerySqlInts(
     '''SELECT mt.Id FROM lookup.MemberType AS mt WHERE mt.AttendanceTypeId = 10'''))))
 
@@ -36,7 +35,7 @@ class BackgroundChecker:
         'PASSED': 8
     }
     Expirations = {
-        'basic': DateTime.Now.AddMonths(-12),
+        'basic': DateTime.Now.AddMonths(-60),
         'paVol': DateTime.Now.AddMonths(-60),
         'paEmp': DateTime.Now.AddMonths(-60),
         'affid': DateTime.Now.AddMonths(-60),
@@ -44,7 +43,7 @@ class BackgroundChecker:
         'isMin': DateTime.Now.AddMonths(-216)
     }
     Renewals = {
-        'basic': DateTime.Now.AddMonths(-11),
+        'basic': DateTime.Now.AddMonths(-57),
         'paVol': DateTime.Now.AddMonths(-57),
         'paEmp': DateTime.Now.AddMonths(-57),
         'affid': DateTime.Now.AddMonths(-57),
@@ -203,7 +202,7 @@ class BackgroundChecker:
                         check_status = check_status | self.Statuses['REVIEW_COMPLETE']
                         # TODO: establish a means for checks to pass with issues.
 
-            if check.ServiceCode == "" and check.ReportLabelID == 1:
+            if (check.ServiceCode == "" and check.ReportLabelID == 1) or check.ServiceCode == '448991':
                 # PA Employee
 
                 self.statusHis['paEmp'] = self.statusHis['paEmp'] | check_status
@@ -214,7 +213,7 @@ class BackgroundChecker:
                 if DateTime.Compare(check.Updated, self.Expirations['paEmp']) > 0:
                     self.statusCur['paEmp'] = self.statusCur['paEmp'] | check_status
 
-            if check.ServiceCode == "ComboPS":
+            if check.ServiceCode == "ComboPS" or check.ServiceCode == "standard":
                 # PA Volunteer
 
                 self.statusHis['paVol'] = self.statusHis['paVol'] | check_status
@@ -225,7 +224,7 @@ class BackgroundChecker:
                 if DateTime.Compare(check.Updated, self.Expirations['paVol']) > 0:
                     self.statusCur['paVol'] = self.statusCur['paVol'] | check_status
 
-            if check.ServiceCode == "Combo" or check.ServiceCode == "ComboPS" or check.ServiceCode == "":
+            if check.ServiceCode == "Combo" or check.ServiceCode == "ComboPS" or check.ServiceCode == "" or check.ServiceCode == '448991'  or check.ServiceCode == "standard":
                 # Basic
 
                 self.statusHis['basic'] = self.statusHis['basic'] | check_status
@@ -268,7 +267,7 @@ class BackgroundChecker:
 
                 if DateTime.Compare(dt, self.Expirations['fingr']) > 0:
                     self.statusCur['fingr'] = self.statusCur['fingr'] | check_status
-                    
+
             # Resident Affidavit
             if rm.Groups['docType'].Value.ToLower() == "affid":
                 dt = Convert.ToDateTime(rm.Groups['date'].Value)
@@ -292,67 +291,7 @@ class BackgroundChecker:
 
 userPerson = model.GetPerson(model.UserPeopleId)
 
-if model.Data.view == "technical" and userPerson.Users[0].InRole('Admin'):
-
-    model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; }</style>"
-
-
-    def status_to_cell(status, mask):
-        return "<td class=\"{}\">{}</td>".format(("y" if status & mask == mask else "n"),
-                                                 ("Yes" if status & mask == mask else "No"))
-
-
-    def status_to_row(status):
-        r = ""
-        r += status_to_cell(status, 1)
-        r += status_to_cell(status, 2)
-        r += status_to_cell(status, 4)
-        r += status_to_cell(status, 8)
-        return r
-
-
-    print "<table style=\"width:100%;\">"
-    for p in q.QueryList(people_needing_checks):
-        bgc = BackgroundChecker(p.PeopleId)
-        print "<tr>"
-        print "<th colspan=2>{} {}</th>".format(bgc.person.PreferredName, bgc.person.LastName)
-        print "<td colspan=2>{}</td>".format("Employable" if bgc.can_employ() else "Not Employable")
-        print "<td colspan=2>{}</td>".format("Volunteer" if bgc.can_volunteer() else "No Volunteering")
-        print "</tr>"
-
-        print "<tr><td colspan=2>Current</td><td>Started</td><td>Complete</td><td>Reviewed</td><td>Passed</td></tr>"
-
-        for ci in bgc.statusCur:
-            print "<tr>"
-            print "<td>&nbsp;&nbsp;&nbsp;</td><td>{}</td>".format(ci)
-            print status_to_row(bgc.statusCur[ci])
-            print "</tr>"
-
-        print "<tr><td colspan=2>Expiring</td><td>Started</td><td>Complete</td><td>Reviewed</td><td>Passed</td></tr>"
-
-        for ci in bgc.statusExp:
-            print "<tr>"
-            print "<td>&nbsp;&nbsp;&nbsp;</td><td>{}</td>".format(ci)
-            print status_to_row(bgc.statusExp[ci])
-            print "</tr>"
-
-        print "<tr><td colspan=2>Historical</td><td>Started</td><td>Complete</td><td>Reviewed</td><td>Passed</td></tr>"
-
-        for ci in bgc.statusHis:
-            print "<tr>"
-            print "<td>&nbsp;&nbsp;&nbsp;</td><td>{}</td>".format(ci)
-            print status_to_row(bgc.statusHis[ci])
-            print "</tr>"
-
-        print "<tr><td colspan=2>To Volunteer:</td><td colspan=4>"
-        # pprint(bgc.items_needed(False))
-        print "</td></tr>"
-        print "<tr><td colspan=2>For Employment:</td><td colspan=4>"
-        # pprint(bgc.items_needed(True))
-        print "</td></tr>"
-    print "</table>"
-
-elif model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck'):
+if model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck'):
 
     model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; }</style>"
 
@@ -415,42 +354,27 @@ elif model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck')
             print "<p><i>No Documents</i></p>"
 
         print "</div>"
-        
+
 
 elif model.Data.view == "affid":
     model.Header = "PA Resident Affidavit"
-    
+
     if model.Data.viewas != "" and userPerson.Users[0].InRole('BackgroundCheck'):
         bgc = BackgroundChecker(int(model.Data.viewas))
     else:
         bgc = BackgroundChecker()
-        
+
     agreementEnv = model.ExtraValueText(bgc.person.PeopleId, affidEv)
-    
+
     if model.InOrg(bgc.person.PeopleId, employeeOrgId):
         print "<p>As you are an employee, you are not eligible for the affidavit.  Please go back to complete the process.</p>"
-    
+
     elif agreementEnv is None or agreementEnv == '':
-        jsonData = {
-            "subject": {
-                "firstName": bgc.person.FirstName,
-                "lastName": bgc.person.LastName,
-                "email": bgc.person.EmailAddress,
-                "pid": bgc.person.PeopleId
-            }
-        }
-        
-        agreement = model.RestPostJson(affidFlowTriggerUrl, {}, jsonData)
-        
-        agreement = model.JsonDeserialize(agreement)
-            
-        if (agreement['subject']['pid'] == bgc.person.PeopleId):
-            model.AddExtraValueText(bgc.person.PeopleId, affidEv, agreement['envelopeId'])
-            
-            print "<p>In a moment, you should recieve an email from DocuSign to certify your residency in Pennsylvania.  Please complete the form to complete this stage of the background check.</p>"
-        else:
-            print "<p>An error occurred: PID mismatch</p>"
-            
+
+        print "<p>Please complete and sign the form below.  Once you do, it may take a few minutes for the change to be reflected in your profile. <b>Do NOT submit this form multiple times.</b></p>"
+
+        print '''<iframe src="https://na2.documents.adobe.com/public/esignWidget?wid=CBFCIBAA3AAABLblqZhAbxJ_V6VBKJe1Yp-Ea5w47T43MbHLt4KcNzv1Rz1HQ6nAg2B7qbaFhIVaP2niSMbA*&hosted=false#PersonId={}" width="100%" height="100%" frameborder="0" style="border: 0; height: 80vh; overflow: hidden; min-height: 500px; min-width: 600px;"></iframe>'''.format(bgc.person.PeopleId)
+
     else:
         print "<p>It appears that you already have an affidavit in progress or on file.</p>"  # TODO clarify this
 
@@ -502,8 +426,9 @@ elif model.HttpMethod == "get":
                   "this.</a></div>".format(bgc.person.PeopleId)
 
         if 'Bio' in to_do:
-            print "<div class=\"well\"><a href=\"/Person2/{}\">Click here to update your profile</a> to include your " \
-                  "full name, gender, and date of birth.</div>".format(bgc.person.PeopleId)
+            print "<div class=\"well\"><p>Please update your profile to include your " \
+                  "full name, gender, and date of birth.</p><p><a href=\"/Person2/{}\" " \
+                  "class=\"btn btn-primary\">Update Your Profile</a></p></div>".format(bgc.person.PeopleId)
 
         elif 'Ssn' in to_do:
             print "<div class=\"well\">"
@@ -543,9 +468,9 @@ elif model.HttpMethod == "get":
 
         elif 'submit_emp' in to_do or 'submit_vol' in to_do or 'submit_basic' in to_do:
             print "<div class=\"well\">"
-            
+
             # pprint(to_do)
-            
+
             print "<form method=\"POST\" action=\"/PyScriptForm/{}\">".format(model.ScriptName)
             print "<table><tbody>"
             print "<tr><td><p>You're all set for a mostly-automated renewal.  Click to continue.</p></td></tr>"
@@ -578,13 +503,11 @@ elif model.HttpMethod == "get":
             print "</div>"
 
         if 'submit_fbi' in to_do:
-            print "<div class=\"well\">We need your FBI Fingerprinting clearance.  " \
-                  "<a href=\"https://uenroll.identogo.com/workflows/1KG756/appointment/bio\"" \
-                  " target=\"_blank\">Click here to enter your information and arrange a fingerprinting " \
-                  "appointment.</a>  Pennsylvania uses IdentoGo as a provider for this service, and you will be " \
+            print "<div class=\"well\">We need your FBI Fingerprinting clearance. Please make an appointment for fingerprinting. " \
+                  "Pennsylvania uses IdentoGo as a provider for this service, and you will be " \
                   "required to make an appointment at a location in PA.  A few weeks after your appointment, "\
                   " your certification will be mailed to you.  Please scan it and upload it here."
-            print "<br /><a href=\"/OnlineReg/96\" class=\"btn btn-primary\">Submit Document</a>"
+            print "<br /><a href=\"https://uenroll.identogo.com/workflows/1KG756/appointment/bio\" class=\"btn btn-primary\">Make Appointment</a>&nbsp;<a href=\"/OnlineReg/96\" class=\"btn btn-primary\">Submit Document</a>"
             print "</div>"
 
 
