@@ -31,6 +31,9 @@ that process is complete.
 1.  You will need a Google Geocoding API Key saved to a setting called "GoogleGeocodeAPIKey".  This is the same setting 
     used for TouchPoint's built-in Small Group Finder.  You can find [instructions for creating an API Key in the 
     TouchPoint documentation.](https://docs.touchpointsoftware.com/Organizations/SmallGroupFinderMap.html)
+1.  To use the default imaging providers, you will need to 
+    [sign up for a (free) Stadia Maps account](https://client.stadiamaps.com/). Once your account is created, use Domain 
+    authentication, and enter the domain for TouchPoint (e.g. mychurch.tpsdb.com).
 1.  Download the Mapify zip file from the releases and install it at `mychurch.tpsdb.com/InstallPyScriptProject`.  This 
     will install the script, and add the geocoding task to your morning batch.  The geocoding task will work through 
     your database around 1000 records per day, prioritizing those who have been active-ish recently.  This should keep

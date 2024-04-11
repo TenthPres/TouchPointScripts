@@ -31,8 +31,8 @@ if model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
 
     template = """
 
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.79/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.79/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.116/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.116/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/gh/TenthPres/TouchPointScripts/Mapify/style.min.css" rel="stylesheet">
 
     <div id="cesiumContainer" class="fullSize"></div>
@@ -63,9 +63,9 @@ if model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
             }
         });
 
-    var flyHome = function() { 
-        viewer.camera.flyTo({ 
-            destination: Cesium.Cartesian3.fromDegrees(-75.169899, 39.947262, 85000.0), // TODO replace with church lat/lng setting 
+    var flyHome = function() {
+        viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(-75.169899, 39.947262, 85000.0), // TODO replace with church lat/lng setting
             duration: 4
         });
     };
@@ -109,7 +109,8 @@ if model.Data.p == "" and model.Data.fams == "":  # Blue Toolbar Page load
             new Cesium.Color(0, 0, 1, 0.5),
             new Cesium.Color(1, 1, 0, 0.5),
             new Cesium.Color(0, 1, 1, 0.5),
-            new Cesium.Color(1, 0, 1, 0.5)
+            new Cesium.Color(1, 0, 1, 0.5),
+            new Cesium.Color(0, .4, 0, .5)
         ],
         nullColor = new Cesium.Color(0, 0, 0, 0.5);
 
@@ -293,18 +294,18 @@ elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != 
     -- noinspection SqlResolveForFile
 
     SELECT *, 1 as [includedFamily], (IIF(p.PeopleId IN ({3}), 1, 0)) as [includedPerson]
-        FROM People p 
+        FROM People p
             LEFT JOIN Families f on p.FamilyId = f.FamilyId
             LEFT JOIN PeopleExtra pe ON pe.Field = '{0}' AND pe.PeopleId = p.PeopleId
     WHERE p.FamilyId IN ({2})
     UNION
     SELECT *, 0 as [includedFamily], (IIF(p.PeopleId IN ({3}), 1, 0)) as [includedPerson]
-        FROM People p 
+        FROM People p
             LEFT JOIN Families f on p.FamilyId = f.FamilyId
             LEFT JOIN PeopleExtra pe ON pe.Field = '{0}' AND pe.PeopleId = p.PeopleId
     WHERE pe.Data = '{1}' AND p.FamilyId NOT IN ({2})
     ORDER BY includedFamily DESC, p.FamilyId ASC, includedPerson DESC, p.PositionInFamilyId
-    """.format("null", model.Data.hsh, includedFams, includedPeop)  # TODO rework for new geocoding
+    """.format("null", model.Data.hsh, includedFams, includedPeop)
 
     famId = 0
     out = '''
@@ -328,7 +329,7 @@ elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != 
 
     <div class="person{{IfEqual d.includedPerson 1}} included{{else}} excluded{{/IfEqual}}">
         <div class="person-photo"
-            {{IfNotEqual pHasPhoto 0}} 
+            {{IfNotEqual pHasPhoto 0}}
             style="background-position: {{p.Picture.X}}% {{p.Picture.Y}}%; opacity:0;">
             <img onload="parent.imageLoaded(this)" src="/Portrait/{{ p.Picture.SmallId }}"
             /{{/IfNotEqual}}>
@@ -363,5 +364,3 @@ elif model.HttpMethod == 'post' and model.Data.fams != '' and model.Data.hsh != 
     out += "</div></div>"
 
     print "<!-- >>>>>DATA>" + out + "<DATA<<<<< -->"
-
-#
