@@ -5,7 +5,6 @@ and then goes a bit above and beyond.
 
 As currently configured, this runs/looks for checks on the following schedule:
 - Minors do not need background checks.  They are listed to get actual background checks at 17 and 9 months.
-- Basic ProtectMyMinistry check is run annually for all adult employees and volunteers who work with children.
 - PATCH is run once every five years (as required by law).  This system does not have a means for checks to be imported. 
 Therefore, if a volunteer already has this check, it will need to be run again through ProtectMyMinistry.
 - CAHC is run once every five years (as required by law).  This system does not have a means for checks to be imported. 
