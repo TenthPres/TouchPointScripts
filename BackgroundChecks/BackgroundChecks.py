@@ -12,6 +12,7 @@ if (Data.viewas != '' and userPerson.Users[0].InRole('BackgroundCheck')):
     subjectPid = Data.viewas
     impersonated = True
 
+
 def actionForDate(d):
     if d is None:
         return "None"
@@ -20,6 +21,7 @@ def actionForDate(d):
     if DateTime.Compare(d, DateTime.Now.AddMonths(3)) < 0:
         return "Expires Soon"
     return "Valid"
+
 
 def formatDate(d):
     a = actionForDate(d)
@@ -51,6 +53,7 @@ def needs(r, p):  # row, person
         p.BirthYear < 1930  # meant to detect if null
     ):
         n.append('Bio')
+        n.append('Invalid')
 
     if len(n) > 0:
         return n
@@ -83,12 +86,15 @@ def needs(r, p):  # row, person
     if String.IsNullOrEmpty(p.Ssn) and needSsn:
         n.append('Ssn')
 
+    if actionForDate(r.Training) != "Valid":
+        n.append("Training")
+
     return n
 
 
 # List mode
-if (model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck')) or (model.Data.view == "admin" and userPerson.Users[0].InRole('Admin')):
-    model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; }</style>"
+if (model.Data.view == "list" and (userPerson.Users[0].InRole('BackgroundCheck') or userPerson.Users[0].InRole('BackgroundCheckLight'))) or (model.Data.view == "admin" and userPerson.Users[0].InRole('Admin')):
+    model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; } .box-content a:not(.btn) {text-decoration: underline;}</style>"
 
     adminMode = (model.Data.view == "admin" and userPerson.Users[0].InRole('Admin'))
 
@@ -103,8 +109,10 @@ if (model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck'))
             print "  {}  ".format("Employable with Children" if not r.Status == "Invalid" else "Not Employable with Children")
         else:
             print "  {}  ".format("Volunteer with Children" if not r.Status == "Invalid" else "No Volunteering with Children")
-        print "</b><a href=\"https://my.tenth.org/Person2/{}#tab-volunteer\">Documents</a> ".format(r.PeopleId)
-        print "<a href=\"?viewas={}\">Impersonate</a>".format(r.PeopleId)
+        print "</b>"
+        if userPerson.Users[0].InRole('BackgroundCheck'):
+            print "<a href=\"https://my.tenth.org/Person2/{}#tab-volunteer\">Documents</a> ".format(r.PeopleId)
+            print "<a href=\"?viewas={}\">Impersonate</a>".format(r.PeopleId)
         print "</p>"
 
         print "<h3>Documents On-Hand</h3>"
@@ -139,12 +147,12 @@ if (model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck'))
             print "<p><i>No Documents</i></p>"
 
         n = needs(r, model.GetPerson(r.PeopleId))
-        if len(n) > 0:
+        if len(n) > 0 or r.InProgressLastUpdate is not None:
             print "<h3>Action Required</h3>"
             print "<ul>"
 
             if 'JuAdd' in n:
-                print "<li>Database admin must reconcile this person's \"Just Added\" status.</li>"
+                print "<li>Admin staff must reconcile this person's \"Just Added\" status.</li>"
 
             if 'Bio' in n:
                 print "<li>Subject must update their profile to include full name, gender, and date of birth.</li>"
@@ -155,14 +163,20 @@ if (model.Data.view == "list" and userPerson.Users[0].InRole('BackgroundCheck'))
             elif 'PMM Emp' in n or 'PMM Vol' in n:
                 print "<li>Subject must submit for a background check renewal.</li>"
 
-            if 'PMM Completion' in n:
-                print "<li>Subject must complete the PMM process to get their CAHC results.</li>"
+            if 'PMM Completion' in n or r.InProgressLastUpdate is not None:
+                if r.Status == "Invalid":
+                    print "<li>Subject must complete the PMM process to get their CAHC results.</li>"
+                else:
+                    print "<li>Admin staff should check that their background check is appropriately marked as approved.</li>"
 
             if 'FBI Vol' in n:
                 print "<li>Subject must complete FBI fingerprinting or an affidavit.</li>"
 
             if 'FBI Emp' in n:
                 print "<li>Subject must complete FBI fingerprinting.</li>"
+
+            if 'Training' in n:
+                print "<li>Subject must complete Training.</li>"
 
             print "</ul>"
 
@@ -192,9 +206,6 @@ elif model.Data.view == "affid":
 
         else:
             print "<p>It appears that you already have an affidavit in progress or on file.</p>"
-
-    else:
-        print "<p>It appears that yoy arrived to a place where you were not expected.  Please contact the church office.</p>"
 
 # Submission
 elif model.HttpMethod == "post":
@@ -231,12 +242,26 @@ elif model.HttpMethod == "post":
                 print submit
                 print "<p>Something weird happened.  Please contact the church office, and give them this exact message.</p>"
 
+        elif 'PMM Completion' in n:
+            # We can't actually do anything with this, so go back to the other view and hope it's not a circle.
+            print "REDIRECT={}/PyScript/{}".format(model.CmsHost, model.ScriptName)
+
         else:
             print "<p>Something strange happened.  Please contact the church office, and give them this exact message.</p>"
 
 
 # Default user view
 else:
+    model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; } .box-content a:not(.btn) {text-decoration: underline;}</style>"
+
+    print "<p>"
+    if userPerson.Users[0].InRole('BackgroundCheck') or userPerson.Users[0].InRole('BackgroundCheckLight'):
+        print "<a href=\"?view=list\" class=\"btn btn-default\">List View</a>  "
+        print "<a href=\"/RunScript/BackgroundChecks-Status\" class=\"btn btn-default\">Grid View</a>  "
+    if userPerson.Users[0].InRole('Admin'):
+        print "<a href=\"?view=admin\" class=\"btn btn-default\">Technical Admin View</a>  "
+    print "</p>"
+
     sql = "SELECT * FROM ({0}) as k WHERE PeopleId = {1}".format(mainQuery, subjectPid)
 
     hasResult = False
@@ -254,7 +279,7 @@ else:
         print "<p>Thank you for serving at Tenth!  To protect our children, our other volunteers, and you, we require " \
               "background checks of all staff members and adult volunteers who work with children.</p> "
 
-        if len(n) == 0:
+        if r.Status != "Invalid":
             print "<p><b>You are currently cleared to serve as {}.</b></p>".format(
                 "an employee" if forEmployment else "a volunteer")
 
@@ -277,7 +302,7 @@ else:
         if 'Bio' in n:
             print "<div class=\"well\"><p>Please update your profile to include your " \
                   "full name, gender, and date of birth.</p><p><a href=\"/Person2/{}\" " \
-                  "class=\"btn btn-primary\">Update Your Profile</a></p></div>".format(bgc.person.PeopleId)
+                  "class=\"btn btn-primary\">Update Your Profile</a></p></div>".format(subjectPid)
 
         elif 'Ssn' in n:
             print "<div class=\"well\">"
@@ -328,7 +353,7 @@ else:
             print "</div>"
 
         if 'PMM Completion' in n:
-            print "<div class=\"well\">Within one or two business days, you should soon receive an email with instructions " \
+            print "<div class=\"well\">Within one or two business days, you should receive an email with instructions " \
                   "for how to complete the PA Child Abuse History Clearance.  The subject line will probably be \"PA Child " \
                   "Abuse Registry Check - Tenth Presbyterian Church\".  " \
                   "That email includes a code which you should use in place of " \
@@ -338,18 +363,23 @@ else:
             print "</div>"
 
         if 'FBI Vol' in n:
-            print "<div class=\"well\">We need your FBI Fingerprinting clearance or an affidavit.  <br />"
-            print "If you <b>have only lived in Pennsylvania within the last 10 years</b>, " \
-                  "<a href=\"?view=affid\">please click here to sign an affidavit</a>.<br /> "
-            print "If you <b>have lived outside Pennsylvania within the last 10 years</b>, we will need you to get an" \
-                  " FBI fingerprint check.  <a href=\"https://uenroll.identogo.com/workflows/1KG6ZJ/appointment/bio\"" \
-                  " target=\"_blank\">Click here to enter your information and arrange a fingerprinting " \
-                  "appointment.</a>  Pennsylvania uses IdentoGo as a provider for this service.  Either make your " \
+            print "<div class=\"well\">We need your FBI Fingerprinting clearance or an affidavit.  <ul>"
+            print "<li>If you <b>have only lived in Pennsylvania within the last 10 years</b>, " \
+                  "<a href=\"?view=affid\">please click here to sign an affidavit</a>.</li>"
+            print "<li>If you <b>have lived outside Pennsylvania within the last 10 years</b>, we will need you to get an" \
+                  " FBI fingerprint check.  Pennsylvania uses IdentoGo as a provider for this service.  Either make your " \
                   "appointment at a location in PA (STRONGLY suggested), or use the \"Card Submission By Mail\" option, " \
                   "which will provide instructions for completing a fingerprint card and submitting it back to " \
-                  "IdentoGo. (This is much LESS convenient than it sounds.) Once you receive your certification in the mail, please scan it and "
-            print "<a href=\"/OnlineReg/96\" >upload it here</a>."
-            print "</div>"
+                  "IdentoGo. (This is much LESS convenient than it sounds, and also more expensive.)  " \
+                  "<a href=\"https://uenroll.identogo.com/workflows/1KG6ZJ/appointment/bio\"" \
+                  " target=\"_blank\">Click here to enter your information and arrange a fingerprinting " \
+                  "appointment.</a>  " \
+                  "Once you receive your certification in the mail, please scan it and " \
+                  "<a href=\"/OnlineReg/96\" >upload it here</a>.</li>"
+            print "<li>If you <b>already have the fingerprinting credential</b> because of your work or volunteering elsewhere, you can " \
+                  "<a href=\"/OnlineReg/96\" >upload it here</a>.  The body of the document should begin with " \
+                  "\"Your fingerprint based record check\"...</li>"
+            print "</ul></div>"
 
         if 'FBI Emp' in n:
             print "<div class=\"well\">We need your FBI Fingerprinting clearance. Please make an appointment for fingerprinting. " \
@@ -359,6 +389,12 @@ else:
             print "<br /><a href=\"https://uenroll.identogo.com/workflows/1KG756/appointment/bio\" class=\"btn btn-primary\">Make Appointment</a>&nbsp;<a href=\"/OnlineReg/96\" class=\"btn btn-primary\">Submit Document</a>"
             print "</div>"
 
+        if 'Training' in n:
+            print "<div class=\"well\">We need you to complete training on preventing sexual abuse of children.  We will be in touch with instructions."
+            print "</div>"
+
     if not hasResult:
         print "<p>We are under the impression that you do not serve in an area that requires a background check.  If this is not correct, please contact the church office."
         print "</p>"
+
+    print "<p>If you have questions or need help, please email <a href=\"mailto:clearances@tenth.org\">clearances@tenth.org</a> or <a href=\"https://outlook.office365.com/owa/calendar/TenthPresbyterianChurch@tenth.org/bookings/s/2llJyCFr80Scs1p6QV919w2\">make an appointment here</a>.</p>"
