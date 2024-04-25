@@ -15,6 +15,9 @@ icons on volunteer nametags.
 
 - [**Classroom Redirect**](ClassroomRedirect) - This tool makes it easier for volunteers to access their Classroom Dashboards. 
 
+- [**Cleanup**](Cleanup) - Some cleanup required a human touch.  This script helps you find and fix those records. (This
+script is likely to be updated and expanded often; check back periodically for improvements.)
+
 - [**Demographic Analysis**](DemographicAnalysis) - This Blue Toolbar report readily allows you to see the basic breakdown of demographic
 groups, like age groups and Resident Codes for any situation where you see a Blue Toolbar. 
 
