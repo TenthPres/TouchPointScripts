@@ -15,17 +15,26 @@ userPerson = model.GetPerson(model.UserPeopleId)
 editable = False
 
 # Define who should be able to change assignments.
-if userPerson.Users[0].InRole('Admin') or userPerson.Users[0].InRole('Officer'):
+if userPerson.Users[0].InRole('Admin') or userPerson.Users[0].InRole('Officer') or model.InOrg(userPerson.PeopleId, 61):  # org 61 is staff, for our asst ministers
     editable = True
 
 # Cool.  That's all the configuration you need to do. 
 ###########################################################################
 
 
-if model.HttpMethod == "get" and Data.submit == '' and q.BlueToolbarCount() > 0:
+query = q.BlueToolbarReport()
+count = q.BlueToolbarCount()
+
+if Data.ShepId != '':
+    search = "FamilyExtraInt( Name='{}' ) = {}".format(ShepheredExtraValueName, userPerson.PeopleId)
+    query = q.QueryList(search)
+    count = q.QueryCount(search)
+
+
+if model.HttpMethod == "get" and Data.submit == '' and count > 0:
     # Group people by family
     families = {}
-    for p in q.BlueToolbarReport():
+    for p in query:
         fid_s = str(p.FamilyId)
         
         if not fid_s in families:
@@ -145,4 +154,4 @@ elif model.HttpMethod == "post" and Data.submit == '1':
     
 else:
     print """It seems you came across this in a way that won't work.  To view or make shepherding assignments, go to a profile or search.  Then, go to 
-    the blue toolbar's <pre></></pre> menu and Select the Assign Shepherd report."""
+    the blue toolbar's &lt;/&gt; menu and Select the Assign Shepherd report."""
