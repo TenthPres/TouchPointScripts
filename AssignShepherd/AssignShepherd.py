@@ -26,7 +26,7 @@ query = q.BlueToolbarReport()
 count = q.BlueToolbarCount()
 
 if Data.ShepId != '':
-    search = "FamilyExtraInt( Name='{}' ) = {}".format(ShepheredExtraValueName, userPerson.PeopleId)
+    search = "FamilyExtraInt( Name='{}' ) = {}".format(ShepheredExtraValueName, Data.ShepId)
     query = q.QueryList(search)
     count = q.QueryCount(search)
 
