@@ -1,7 +1,8 @@
 from datetime import datetime
 from pprint import pprint
+from math import floor
 
-OrgsWithNonWeekly = q.QuerySql("""SELECT o.organizationId orgId, o.organizationName orgName FROM Organizations o WHERE o.NotWeekly = 1 AND o.OrganizationStatusId = 30 AND (o.FirstMeetingDate IS NULL OR o.FirstMeetingDate < DATEADD(DAY, -7, GETDATE())) AND (o.LastMeetingDate IS NULL OR o.LastMeetingDate > GETDATE())""")
+OrgsWithNonWeekly = q.QuerySql("""SELECT o.organizationId orgId, o.organizationName orgName FROM Organizations o WHERE o.NotWeekly = 1 AND o.OrganizationStatusId = 30 AND (o.FirstMeetingDate IS NULL OR o.FirstMeetingDate < GETDATE()) AND (o.LastMeetingDate IS NULL OR o.LastMeetingDate > GETDATE())""")
 
 for o in OrgsWithNonWeekly:
     freqs = q.QuerySql("SELECT SUBSTRING(Field, 11, 1000) freq FROM OrganizationExtra WHERE OrganizationId = {} AND Field LIKE 'Frequency:%' AND BitValue = 1".format(o.orgId))
@@ -10,7 +11,7 @@ for o in OrgsWithNonWeekly:
     
     for f in freqs:
         for s in scheds:
-            week = 1 + (s.nextDate.Day - 1 - ((s.nextDate.Day - 1) % 7)) / 7
+            week = 1 + floor((s.nextDate.Day - 1) / 7)
             addMeeting = False
             
             if f.freq == 'Every Other':
