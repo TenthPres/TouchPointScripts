@@ -18,7 +18,8 @@ look to a true Learning/School/Preschool management system.
 ## Setup
 1.  Download the TuitionAutomation zip file from the releases and install it at `mychurch.tpsdb.com/InstallPyScriptProject`.
     This will install the scripts, but you will need to customize them.
-2.  Create an involvement which will be the "payment involvement" in the rest of this documentation.  If you want families to register online, including paying a deposit, this is the involvement where you should put the registration form. 
+2.  Create an involvement which will be the "payment involvement" in the rest of this documentation.  If you want families to register online, including paying a deposit, this is the involvement where you should put the registration form.  The script assumes that the deposit amount 
+    is the same as one month.  If this is not the case (and especially if you allow offline registration), you may need to adjust the script. 
 3.  Create involvements for each class (hereafter, "class involvements").  You will need to add the students as members of these involvements.  We recommend also adding the teachers as leaders, so they can take attendance.   The class involvements can be child involvements of
     the payment involvement, but this is not required. Take note of the Involvement IDs for all of these involvements. 
 4.  Go to Special Content > Python and edit the TuitionAutomation script. Towards the top, you'll see a few variables that you'll need to customize:
