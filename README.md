@@ -37,6 +37,8 @@ overlap.
 their attendnance together. 
   
 - [**Finance > Budget Summary**](Finance%20Reports) - List each budgeted fund and where giving stands compared to budget.
+- 
+- [**Finance > Budget Summary Chart**](Finance%20Reports) - Visual representation of the Budget Summary report.
 
 - [**Global > Birthdays & Anniversaries**](Global%20Reports) - Generate a list of partners who have birthdays or 
 anniversaries coming up, and email it to the appropriate people.  We use this to send cards to partners each month.
