@@ -19,3 +19,5 @@ This is a collection of simple reports used to report on giving.
   ![Budget Summary Chart Screenshot](https://www.tenth.org/touchpoint-api/report/py/BudgetSummaryChart/svg)
 
 </div>
+
+- [**Cumulative Giving YoY (SQL)**](BudgetCumulativeGivingYoY.sql) - Compare giving year-over-year as a percentage of budget, week by week.

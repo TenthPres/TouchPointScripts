@@ -27,7 +27,7 @@ someone uses across time.  This script allows many more email addresses to be im
 making future data imports significantly less likely to produce duplicates.  This script is strongly encouraged for the 
 Mailchimp and ConstantContact integrations. 
 
-- [**Engagement**](Engagement) - This blue toolbar report shows you what enagement people may have recently, particularly useful if they're
+- [**Engagement**](Engagement) - This blue toolbar report shows you what engagement people may have recently, particularly useful if they're
 potentially falling through the cracks. 
 
 - [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
@@ -37,8 +37,10 @@ overlap.
 their attendnance together. 
   
 - [**Finance > Budget Summary**](Finance%20Reports) - List each budgeted fund and where giving stands compared to budget.
-- 
+
 - [**Finance > Budget Summary Chart**](Finance%20Reports) - Visual representation of the Budget Summary report.
+
+- [**Finance > Cumulative Giving YoY (SQL)**](Finance%20Reports) - Compare giving year-over-year as a percentage of budget, week by week.
 
 - [**Global > Birthdays & Anniversaries**](Global%20Reports) - Generate a list of partners who have birthdays or 
 anniversaries coming up, and email it to the appropriate people.  We use this to send cards to partners each month.
