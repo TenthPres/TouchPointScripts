@@ -9,7 +9,7 @@ System we call "MyTenth."
 - [**Assign Shepherd**](AssignShepherd) - This tool allows leaders to be assigned as designated "shepherds" for a family.  
 This shepherd can then be referenced in Tasks or when Counseling situations arise. 
 
-- [**Children's Involvement Rules**](Children's Involvement Rules) - When added to your daily batch, this script will make sure any
+- [**Children's Involvement Rules**](ChildrensInvolvementRules) - When added to your daily batch, this script will make sure any
 Children's Involvements have their proper Extra Values applied, such as the MinistrySafe and Background check heart and checkmark 
 icons on volunteer nametags. 
 
