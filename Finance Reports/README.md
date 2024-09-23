@@ -21,3 +21,8 @@ This is a collection of simple reports used to report on giving.
 </div>
 
 - [**Cumulative Giving YoY (SQL)**](BudgetCumulativeGivingYoY.sql) - Compare giving year-over-year as a percentage of budget, week by week.
+
+- [**Cumulative Giving Comparison to Budget**](BudgetCumulativeComparison.py) - A Python script that takes the Cumulative Giving YoY SQL above and 
+  renders it into a chart that allows for comparison to previous years. 
+
+  ![Cumulative Giving Comparison to Budget Screenshot](https://github.com/TenthPres/TouchPointScripts/blob/master/.documentation/CumulativeGivingYoY.png?raw=true)

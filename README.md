@@ -42,6 +42,9 @@ their attendnance together.
 
 - [**Finance > Cumulative Giving YoY (SQL)**](Finance%20Reports) - Compare giving year-over-year as a percentage of budget, week by week.
 
+- [**Finance > Cumulative Giving Comparison to Budget YoY**](Finance%20Reports) - Compare giving year-over-year as a percentage of budget, 
+  week by week, and see if this year is trending ahead or behind previous years. 
+
 - [**Global > Birthdays & Anniversaries**](Global%20Reports) - Generate a list of partners who have birthdays or 
 anniversaries coming up, and email it to the appropriate people.  We use this to send cards to partners each month.
 

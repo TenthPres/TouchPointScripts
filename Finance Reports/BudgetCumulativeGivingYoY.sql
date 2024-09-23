@@ -1,14 +1,12 @@
 DECLARE @BudgetJson nvarchar(MAX);
 
--- Indicate the relevant funds by choosing a fund set.
-
 SELECT *
 INTO #relevantFunds
 FROM FundSetFunds
 WHERE FundSetId = 1;
 
 
--- Load the budget JSON
+-- Load the budget JSON (assuming it holds data for multiple years and funds)
 SET @BudgetJson = (SELECT TOP 1 Body FROM Content WHERE Name = 'Budgets.json');
 
 
