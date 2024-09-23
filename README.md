@@ -33,8 +33,8 @@ potentially falling through the cracks.
 - [**Engagement Widget**](EngagementWidget) - Compare your populations of attenders, members, and givers. See how (or if) they
 overlap.
 
-- [**Family Attendance**](Family Attendance) - Generates a relatively simple attendance sheet intended for printing, for families to mark 
-their attendnance together. 
+- [**Family Attendance**](FamilyAttendance) - Generates a relatively simple attendance sheet intended for printing, for families to mark 
+their attendance together. 
   
 - [**Finance > Budget Summary**](Finance%20Reports) - List each budgeted fund and where giving stands compared to budget.
 
