@@ -30,7 +30,6 @@ FROM Contribution AS c
 WHERE c.FundId <> @ProjectOfMonthFund
     AND c.ContributionTypeId <> 99
     AND c.ContributionDate >= @StartDate AND c.ContributionDate < dateadd(day, 1, @EndDate)
-    --AND c.ContributionDate between @StartDate AND @EndDate
     AND bh.BundleStatusId = 0
 GROUP BY t.BatchRef, bht.Code, CONVERT(VARCHAR, c.ContributionDate, 101), CONVERT(VARCHAR, t.Settled, 101), c.FundId, cf.FundName, cf.FundAccountCode, cf.FundIncomeAccount, cf.FundIncomeDept, cf.FundIncomeFund
 
@@ -61,7 +60,6 @@ FROM Contribution AS c
 WHERE c.FundId <> @ProjectOfMonthFund
     AND c.ContributionTypeId = 99
     AND c.ContributionDate >= @StartDate AND c.ContributionDate < dateadd(day, 1, @EndDate)
-    --AND c.ContributionDate between @StartDate AND @EndDate
     AND bh.BundleStatusId = 0
 GROUP BY t.BatchRef, bht.Code, CONVERT(VARCHAR, c.ContributionDate, 101), CONVERT(VARCHAR, t.Settled, 101), oe.Data, o.OrganizationName
 
@@ -89,7 +87,6 @@ FROM Contribution AS c
     LEFT JOIN lookup.BundleHeaderTypes AS bht on bht.Id = bh.BundleHeaderTypeId 
 WHERE c.FundId = @ProjectOfMonthFund
     AND c.ContributionDate >= @StartDate AND c.ContributionDate < dateadd(day, 1, @EndDate)
-    --AND c.ContributionDate between @StartDate AND @EndDate
     AND bh.BundleStatusId = 0
 GROUP BY t.BatchRef, bht.Code, CONVERT(VARCHAR, c.ContributionDate, 101), CONVERT(VARCHAR, t.Settled, 101), c.FundId, FORMAT(c.ContributionDate, 'Y', 'en-US'), cf.FundName, cf.FundAccountCode, cf.FundIncomeAccount, cf.FundIncomeDept, cf.FundIncomeFund
 
