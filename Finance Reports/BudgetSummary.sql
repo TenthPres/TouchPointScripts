@@ -53,7 +53,7 @@ FROM #contribs c
          LEFT JOIN FundSets fs ON fsf.FundSetId = fs.FundSetId
 GROUP BY c.Month, c.year, fsf.FundSetId, COALESCE(fs.description, cf.FundName);
 
-SELECT TOP 100 *
+SELECT *
 INTO #summed
 FROM (
          SELECT
@@ -93,7 +93,8 @@ SELECT c.Fund,
        p.Giving AS 'Giving PYTD',
        c.Giving - p.Giving AS 'PY Difference',
        (c.Giving - p.Giving) * 100 / p.Giving  AS 'PY Pct',
-       CAST(@Today AS DATE) AS 'As Of'
+       CAST(@Today AS DATE) AS 'As Of',
+       @year as 'Year'
 FROM #summed c
          LEFT JOIN #summed p ON c.Fund = p.Fund AND c.Year = p.Year + 1
 WHERE c.Budget > 0 AND c.year = @year
@@ -109,7 +110,8 @@ SELECT c.Fund,
        p.Giving AS 'Giving PYTD',
        c.Giving - p.Giving AS 'PY Difference',
        (c.Giving - p.Giving) * 100 / p.Giving  AS 'PY Pct',
-       CAST(@Today AS DATE) AS 'As Of'
+       CAST(@Today AS DATE) AS 'As Of',
+       @year as 'Year'
 FROM #summed c
          LEFT JOIN #summed p ON c.Fund = p.Fund AND c.Year = p.Year + 1
 WHERE c.Budget IS NULL AND c.year = @year
