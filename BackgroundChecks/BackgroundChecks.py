@@ -1,6 +1,8 @@
 # noinspection PyUnresolvedReferences
 from System import DateTime, String, Convert
 
+global model, Data
+
 mainQuery = model.SqlContent('BackgroundChecks-Status')
 userPerson = model.GetPerson(model.UserPeopleId)
 subjectPid = userPerson.PeopleId
@@ -23,14 +25,21 @@ def actionForDate(d):
     return "Valid"
 
 
-def formatDate(d):
-    a = actionForDate(d)
-    s = d.ToString("MMMM dd, yyyy")
+def formatDate(d, color=True):
+    if color:
+        a = actionForDate(d)
+    else:
+        a = "unformatted"
+
+    s = d.ToString("MMMM d, yyyy")
     if a == "Expired":
         return "<span style=\"background-color:red;\">{} on {}</span>".format(a, s)
 
     if a == "Expires Soon":
         return "<span style=\"background-color:yellow;\">{}: {}</span>".format(a, s)
+
+    if a == "unformatted":
+        return "{}".format(s)
 
     return "<span>{} until {}</span>".format(a, s)
 
@@ -47,10 +56,10 @@ def needs(r, p):  # row, person
 
     # Bio: Full Name, Email, etc.
     if (
-        String.IsNullOrEmpty(p.FirstName) or
-        String.IsNullOrEmpty(p.LastName) or
-        (p.GenderId != 1 and p.GenderId != 2) or
-        p.BirthYear < 1930  # meant to detect if null
+            String.IsNullOrEmpty(p.FirstName) or
+            String.IsNullOrEmpty(p.LastName) or
+            (p.GenderId != 1 and p.GenderId != 2) or
+            p.BirthYear < 1930  # meant to detect if null
     ):
         n.append('Bio')
         n.append('Invalid')
@@ -87,7 +96,10 @@ def needs(r, p):  # row, person
         n.append('Ssn')
 
     if actionForDate(r.Training) != "Valid":
-        n.append("Training")
+        if r.TrainAssign is None or r.Training > r.TrainAssign:
+            n.append("Train Assign")
+        else:
+            n.append("Train Completion")
 
     return n
 
@@ -140,6 +152,9 @@ if (model.Data.view == "list" and (userPerson.Users[0].InRole('BackgroundCheck')
 
         if r.Training is not None:
             print "<li>Training: {}</li>".format(formatDate(r.Training))
+            if r.TrainAssign is not None and r.TrainAssign > r.Training:
+                print "  Assigned {}".format(formatDate(r.TrainAssign, False))
+            print "</li>"
 
         print "</ul>"
 
@@ -175,8 +190,11 @@ if (model.Data.view == "list" and (userPerson.Users[0].InRole('BackgroundCheck')
             if 'FBI Emp' in n:
                 print "<li>Subject must complete FBI fingerprinting.</li>"
 
-            if 'Training' in n:
-                print "<li>Subject must complete Training.</li>"
+            if 'Train Assign' in n:
+                print "<li>Subject needs to have training assigned to them.</li>"
+
+            if 'Train Completion' in n:
+                print "<li>Subject needs to complete training which was assigned on {}.</li>".format(formatDate(r.TrainAssign, False))
 
             print "</ul>"
 
@@ -187,9 +205,37 @@ if (model.Data.view == "list" and (userPerson.Users[0].InRole('BackgroundCheck')
 
         print "</div>"
 
+# Tagging mode
+elif model.Data.view == "tag" and userPerson.Users[0].InRole('BackgroundCheck'):
+
+    tagOwner = userPerson.PeopleId
+    prefix = "Background Check: "
+
+    tagsToIgnore = ['Ssn', 'Bio', 'Invalid']
+    tags = ['FBI Emp', 'FBI Vol', 'Train Completion', 'Train Assign', 'PMM Completion', 'PMM Vol', 'PMM Emp']
+
+    for t in tags:
+        model.ClearTag(prefix + t, tagOwner)
+
+
+    for r in q.QuerySql(mainQuery):
+        nl = needs(r, model.GetPerson(r.PeopleId))
+
+        for n in nl:
+            if n in tagsToIgnore:
+                continue
+            if n not in tags:
+                print "<p>Error: could not find the tag '{}' in the standard.</p>".format(n)
+            else:
+                model.AddTag(r.PeopleId, "Background Check: " + n, tagOwner, False)
+
+    print "<p>Done!</p>"
+
+
+
 # Affidavit creation mode
 elif model.Data.view == "affid":
-    sql = "SELECT * FROM ({0}) as k WHERE PeopleId = {1}".format(mainQuery, subjectPid)
+    sql = "{0} WHERE PeopleId = {1}".format(mainQuery, subjectPid)
 
     hasResult = False
     for r in q.QuerySql(sql):
@@ -209,7 +255,7 @@ elif model.Data.view == "affid":
 
 # Submission
 elif model.HttpMethod == "post":
-    sql = "SELECT * FROM ({0}) as k WHERE PeopleId = {1}".format(mainQuery, subjectPid)
+    sql = "{0} WHERE PeopleId = {1}".format(mainQuery, subjectPid)
 
     hasResult = False
     for r in q.QuerySql(sql):
@@ -228,7 +274,10 @@ elif model.HttpMethod == "post":
             if forEmployment:
                 package = "PA Employee"
             else:
-                package = "PA Package"
+                if p.PrimaryState == 'PA':
+                    package = "PA Package"
+                else:
+                    package = "PA Volunteer"
 
             if package is not False and ssn is not False:
                 submit = model.AddBackgroundCheck(r.PeopleId, package, sSSN=ssn)
@@ -258,11 +307,16 @@ else:
     if userPerson.Users[0].InRole('BackgroundCheck') or userPerson.Users[0].InRole('BackgroundCheckLight'):
         print "<a href=\"?view=list\" class=\"btn btn-default\">List View</a>  "
         print "<a href=\"/RunScript/BackgroundChecks-Status\" class=\"btn btn-default\">Grid View</a>  "
+        print "<a href=\"/PyScript/BackgroundCheckStats\" class=\"btn btn-default\">Stats</a>  "
+
+    if userPerson.Users[0].InRole('BackgroundCheck'):
+        print "<a href=\"?view=tag\" class=\"btn btn-default\">Update Tags</a>  "
+
     if userPerson.Users[0].InRole('Admin'):
         print "<a href=\"?view=admin\" class=\"btn btn-default\">Technical Admin View</a>  "
     print "</p>"
 
-    sql = "SELECT * FROM ({0}) as k WHERE PeopleId = {1}".format(mainQuery, subjectPid)
+    sql = "{0} WHERE PeopleId = {1}".format(mainQuery, subjectPid)
 
     hasResult = False
     for r in q.QuerySql(sql):
@@ -306,14 +360,14 @@ else:
 
         elif 'Ssn' in n:
             print "<div class=\"well\">"
-            print "<form method=\"POST\" action=\"/PyScriptForm/{}?set=ssn{}\">".\
+            print "<form method=\"POST\" action=\"/PyScriptForm/{}?set=ssn{}\">". \
                 format(model.ScriptName, '&emp=1' if forEmployment else '')
             print "<table><tbody>"
             print "<tr><td style=\"width:200px;\">First Name</td><td><input type=\"text\" disabled=\"disabled\" " \
                   "value=\"{}\" /></td></tr>".format(p.FirstName)
             print "<tr><td>Middle Name or Initial</td><td><input type=\"text\" disabled=\"disabled\" value=\"{}\" " \
                   "/></td></tr>".format(p.MiddleName)
-            print "<tr><td>Last Name</td><td><input type=\"text\" disabled=\"disabled\" value=\"{}\" /></td></tr>".\
+            print "<tr><td>Last Name</td><td><input type=\"text\" disabled=\"disabled\" value=\"{}\" /></td></tr>". \
                 format(p.LastName)
             print "<tr><td>Maiden/Former Last Name</td><td><input type=\"text\" disabled=\"disabled\" value=\"\" " \
                   "/></td></tr>".format(p.MaidenName or "")
@@ -384,13 +438,17 @@ else:
         if 'FBI Emp' in n:
             print "<div class=\"well\">We need your FBI Fingerprinting clearance. Please make an appointment for fingerprinting. " \
                   "Pennsylvania uses IdentoGo as a provider for this service, and you will be " \
-                  "required to make an appointment at a location in PA.  A few weeks after your appointment, "\
+                  "required to make an appointment at a location in PA.  A few weeks after your appointment, " \
                   " your certification will be mailed to you.  Please scan it and upload it here."
             print "<br /><a href=\"https://uenroll.identogo.com/workflows/1KG756/appointment/bio\" class=\"btn btn-primary\">Make Appointment</a>&nbsp;<a href=\"/OnlineReg/96\" class=\"btn btn-primary\">Submit Document</a>"
             print "</div>"
 
-        if 'Training' in n:
+        if 'Train Assign' in n:
             print "<div class=\"well\">We need you to complete training on preventing sexual abuse of children.  We will be in touch with instructions."
+            print "</div>"
+
+        if 'Train Completion' in n:
+            print "<div class=\"well\">We need you to complete training on preventing sexual abuse of children.  You should have received an email about this from MinistrySafe (our training partner) on or around {}.".format(formatDate(r.TrainAssign, False))
             print "</div>"
 
     if not hasResult:
