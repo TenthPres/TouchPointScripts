@@ -1,6 +1,7 @@
 --roles=Finance
 --class=TotalsByFund
 
+
 DECLARE @ProjectOfMonthFund AS int;
 DECLARE @RegistrationIncomeFund AS int;
 
@@ -10,7 +11,7 @@ SET @ProjectOfMonthFund = 25;
 -- Donations, except Project of the Month
 SELECT 
     t.BatchRef AS BatchId,
-    bht.Code as Typ,
+    COALESCE(bht.Code, IIF(c.ContributionTypeId = 6, 'Ret', 'Fail')) as Typ,
     CONVERT(VARCHAR, c.ContributionDate, 101) AS ContribDate, 
     CONVERT(VARCHAR, t.Settled, 101) as SettleDate, 
     c.FundId, 
@@ -30,8 +31,18 @@ FROM Contribution AS c
 WHERE c.FundId <> @ProjectOfMonthFund
     AND c.ContributionTypeId <> 99
     AND c.ContributionDate >= @StartDate AND c.ContributionDate < dateadd(day, 1, @EndDate)
-    AND bh.BundleStatusId = 0
-GROUP BY t.BatchRef, bht.Code, CONVERT(VARCHAR, c.ContributionDate, 101), CONVERT(VARCHAR, t.Settled, 101), c.FundId, cf.FundName, cf.FundAccountCode, cf.FundIncomeAccount, cf.FundIncomeDept, cf.FundIncomeFund
+    AND (bh.BundleStatusId = 0 OR c.ContributionTypeId = 6 OR c.ContributionStatusId = 2)
+GROUP BY 
+    t.BatchRef, 
+    COALESCE(bht.Code, IIF(c.ContributionTypeId = 6, 'Ret', 'Fail')), 
+    CONVERT(VARCHAR, c.ContributionDate, 101), 
+    CONVERT(VARCHAR, t.Settled, 101), 
+    c.FundId, 
+    cf.FundName, 
+    cf.FundAccountCode, 
+    cf.FundIncomeAccount, 
+    cf.FundIncomeDept, 
+    cf.FundIncomeFund
 
 UNION ALL
 
@@ -58,9 +69,10 @@ FROM Contribution AS c
     LEFT JOIN BundleHeader AS bh on bd.BundleHeaderId = bh.BundleHeaderId
     LEFT JOIN lookup.BundleHeaderTypes AS bht on bht.Id = bh.BundleHeaderTypeId
 WHERE c.FundId <> @ProjectOfMonthFund
+    AND c.PeopleId = 33643
     AND c.ContributionTypeId = 99
     AND c.ContributionDate >= @StartDate AND c.ContributionDate < dateadd(day, 1, @EndDate)
-    AND bh.BundleStatusId = 0
+    AND (bh.BundleStatusId = 0 OR c.ContributionTypeId = 6 OR c.ContributionStatusId = 2)
 GROUP BY t.BatchRef, bht.Code, CONVERT(VARCHAR, c.ContributionDate, 101), CONVERT(VARCHAR, t.Settled, 101), oe.Data, o.OrganizationName
 
 UNION ALL
@@ -68,7 +80,7 @@ UNION ALL
 -- Project of the Month
 SELECT 
     t.BatchRef as BatchId,
-    bht.Code as Typ,
+    COALESCE(bht.Code, IIF(c.ContributionTypeId = 6, 'Ret', 'Fail')) as Typ,
     CONVERT(VARCHAR, c.ContributionDate, 101) AS ContribDate,
     CONVERT(VARCHAR, t.Settled, 101) as SettleDate,
     c.FundId, 
@@ -86,8 +98,19 @@ FROM Contribution AS c
     LEFT JOIN BundleHeader AS bh on bd.BundleHeaderId = bh.BundleHeaderId 
     LEFT JOIN lookup.BundleHeaderTypes AS bht on bht.Id = bh.BundleHeaderTypeId 
 WHERE c.FundId = @ProjectOfMonthFund
+    AND c.PeopleId = 33643
     AND c.ContributionDate >= @StartDate AND c.ContributionDate < dateadd(day, 1, @EndDate)
     AND bh.BundleStatusId = 0
-GROUP BY t.BatchRef, bht.Code, CONVERT(VARCHAR, c.ContributionDate, 101), CONVERT(VARCHAR, t.Settled, 101), c.FundId, FORMAT(c.ContributionDate, 'Y', 'en-US'), cf.FundName, cf.FundAccountCode, cf.FundIncomeAccount, cf.FundIncomeDept, cf.FundIncomeFund
+GROUP BY 
+    t.BatchRef, 
+    COALESCE(bht.Code, IIF(c.ContributionTypeId = 6, 'Ret', 'Fail')), 
+    CONVERT(VARCHAR, c.ContributionDate, 101), 
+    CONVERT(VARCHAR, t.Settled, 101), 
+    c.FundId,
+    CONCAT(cf.FundName, ' (', FORMAT(c.ContributionDate, 'Y', 'en-US'), ')' ), 
+    cf.FundAccountCode, 
+    cf.FundIncomeAccount, 
+    cf.FundIncomeDept, 
+    cf.FundIncomeFund
 
 ORDER BY ContribDate ASC, Typ ASC, BatchId ASC, FundId ASC
