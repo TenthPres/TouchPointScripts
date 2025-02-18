@@ -1,7 +1,6 @@
 --roles=Finance
 --class=TotalsByFund
 
-
 DECLARE @ProjectOfMonthFund AS int;
 DECLARE @RegistrationIncomeFund AS int;
 
@@ -69,7 +68,6 @@ FROM Contribution AS c
     LEFT JOIN BundleHeader AS bh on bd.BundleHeaderId = bh.BundleHeaderId
     LEFT JOIN lookup.BundleHeaderTypes AS bht on bht.Id = bh.BundleHeaderTypeId
 WHERE c.FundId <> @ProjectOfMonthFund
-    AND c.PeopleId = 33643
     AND c.ContributionTypeId = 99
     AND c.ContributionDate >= @StartDate AND c.ContributionDate < dateadd(day, 1, @EndDate)
     AND (bh.BundleStatusId = 0 OR c.ContributionTypeId = 6 OR c.ContributionStatusId = 2)
@@ -98,7 +96,6 @@ FROM Contribution AS c
     LEFT JOIN BundleHeader AS bh on bd.BundleHeaderId = bh.BundleHeaderId 
     LEFT JOIN lookup.BundleHeaderTypes AS bht on bht.Id = bh.BundleHeaderTypeId 
 WHERE c.FundId = @ProjectOfMonthFund
-    AND c.PeopleId = 33643
     AND c.ContributionDate >= @StartDate AND c.ContributionDate < dateadd(day, 1, @EndDate)
     AND bh.BundleStatusId = 0
 GROUP BY 
