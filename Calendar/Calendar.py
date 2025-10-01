@@ -79,7 +79,7 @@ def generate_calendar_html(year, month):
                 if ev.Featured:
                     classes.append('feat')
                 
-                html.append("<a href='/Meeting/%s'>" % ev.MeetingId)
+                #html.append("<a href='/Meeting/%s'>" % ev.MeetingId)
                 
                 html.append("<div class='%s'>" % ' '.join(classes))
                 
@@ -89,7 +89,8 @@ def generate_calendar_html(year, month):
                     ev.MeetingDate.ToString("h:mmtt") if ev.MeetingEnd is None else ev.MeetingEnd.ToString("h:mmtt")
                 )).lower().replace(":00",""))
                 
-                html.append("</div></a>")
+                html.append("</div>")
+                # html.append("</a>")
             html.append("</td>")
         html.append("</tr>")
 
