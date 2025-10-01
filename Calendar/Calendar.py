@@ -14,7 +14,9 @@ def get_events(dt):
     FROM Meetings m 
     LEFT JOIN Organizations o ON m.OrganizationId = o.OrganizationId
     
-    WHERE m.MeetingDate < DATEADD(day, 1, '{0}') AND COALESCE(m.MeetingEnd, m.MeetingDate) > '{0}'
+    WHERE m.MeetingDate < DATEADD(day, 1, '{0}') 
+    AND COALESCE(m.MeetingEnd, m.MeetingDate) > '{0}'
+    AND m.Canceled = 0
     ORDER BY MeetingDate, o.DivisionId
 '''.format(dt))
 
@@ -39,7 +41,8 @@ def generate_calendar_html(date):
 
     prev_link = "?d=%d-%d" % (prev_year, prev_month)
     next_link = "?d=%d-%d" % (next_year, next_month)
-    week_link = "?v=w&d=%d-%d-1" % (date.year, date.month)
+    week_link = "?v=w&d=%d-%d-%d" % (date.year, date.month, date.day)
+    day_link = "?v=d&d=%d-%d-%d" % (date.year, date.month, date.day)
 
     html = []
     html.append("<style>")
@@ -49,8 +52,9 @@ def generate_calendar_html(date):
     html.append("th { background: #eee; }")
     html.append(".daynum { font-weight: bold; }")
     html.append(".event { margin: 2px 0; padding: 2px; background: #def; border-radius: 3px; }")
-    html.append(".nav { display: flex; gap: 1em; }")
-    html.append(".nav-l, .nav-r { flex:1; }")
+    html.append(".nav.cal { display: flex; gap: 1em; }")
+    html.append(".nav.cal > * { flex:1; }")
+    html.append(".nav-c { text-align:center; }")
     html.append(".nav-r { text-align:right; }")
     html.append("</style>")
     # html.append("<h2>%s %d</h2>" % (calendar.month_name[month], year))
@@ -58,8 +62,11 @@ def generate_calendar_html(date):
     model.Title = "Calendar: %s %d" % (calendar.month_name[month], year)
     model.Header = "%s %d" % (calendar.month_name[month], year)
     
-    html.append("<div class='nav'>")
-    html.append("<div class='nav-l'>")
+    html.append("<div class='nav cal'>")
+    
+    html.append("<div class='nav-l'></div>")
+    
+    html.append("<div class='nav-c'>")
     html.append("<a href='%s'>&laquo; %s %d</a> | " % (prev_link, calendar.month_name[prev_month], prev_year))
     html.append("<strong>%s %d</strong>" % (calendar.month_name[month], year))
     html.append(" | <a href='%s'>%s %d &raquo;</a>" % (next_link, calendar.month_name[next_month], next_year))
@@ -68,6 +75,7 @@ def generate_calendar_html(date):
     html.append("<div class='nav-r'>")
     html.append("<strong>Month</strong>")
     html.append(" | <a href='%s'>Week</a>" % (week_link))
+    html.append(" | <a href='%s'>Day</a>" % (day_link))
     html.append("</div>")
     html.append("</div>")
 
@@ -85,8 +93,9 @@ def generate_calendar_html(date):
             
             else:
                 html.append("<td style='background:#f9f9f9; opacity:.5'>")
-                
-            html.append("<div class='daynum'>%d</div>" % day.day)
+            
+            day_link = "?v=d&d=%d-%d-%d" % (day.year, day.month, day.day)
+            html.append("<a class='daynum' href='%s'>%d</div>" % (day_link, day.day))
             for ev in events:
                 
                 classes = ['event']
@@ -100,8 +109,8 @@ def generate_calendar_html(date):
                 
                 html.append("%s<br>" % ev.MeetingName)
                 html.append(("<small>%s - %s</small>" % (
-                    ev.MeetingDate.ToString("h:mmtt"),
-                    ev.MeetingDate.ToString("h:mmtt") if ev.MeetingEnd is None else ev.MeetingEnd.ToString("h:mmtt")
+                    ev.MeetingDate.ToString("h:mmtt").replace('M',''),
+                    ev.MeetingDate.ToString("h:mmtt").replace('M','') if ev.MeetingEnd is None else ev.MeetingEnd.ToString("h:mmtt").replace('M','')
                 )).lower().replace(":00",""))
                 
                 html.append("</div></a>")
@@ -112,26 +121,40 @@ def generate_calendar_html(date):
     return "\n".join(html)
 
 
-def generate_calendar_week_html(start_date):
+def generate_calendar_vert_html(start_date, dayCount):
     """
     Generate an HTML week view calendar with overlap handling,
     horizontal hour/half-hour lines, scrollable, and auto-scroll to 8am.
     """
-    start_of_week = start_date - datetime.timedelta(days=start_date.weekday() + 1 if start_date.weekday() != 6 else 0)
-    days = [start_of_week + datetime.timedelta(days=i) for i in range(7)]
+    start_of_span = start_date
+    if dayCount % 7 == 0:
+        start_of_span = start_date - datetime.timedelta(days=start_date.weekday() + 1 if start_date.weekday() != 6 else 0)
+    days = [start_of_span + datetime.timedelta(days=i) for i in range(dayCount)]
+    
+    span_term = "Span"
+    span_link = str(dayCount)
+    if dayCount == 14:
+        span_term = "Fortnight"
+    elif dayCount == 7:
+        span_term = "Week"
+        span_link = 'w'
+    elif dayCount == 1:
+        span_term = "Day"
+        span_link = 'd'
 
     hour_height = 6  # vh per hour
     day_start = 0
     day_end = 24
     
-    prev_date = start_date - datetime.timedelta(days=7)
-    next_date = start_date + datetime.timedelta(days=7)
+    prev_date = start_date - datetime.timedelta(days=dayCount)
+    next_date = start_date + datetime.timedelta(days=dayCount)
     
-    prev_link = "?v=w&d=%d-%d-%d" % (prev_date.year, prev_date.month, prev_date.day)
-    next_link = "?v=w&d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
-    month_link = "?d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
+    prev_link = "&d=%d-%d-%d" % (prev_date.year, prev_date.month, prev_date.day)
+    next_link = "&d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
+    curr_link = "&d=%d-%d-%d" % (start_date.year, start_date.month, start_date.day)
+    month_link = "?d=%d-%d-%d" % (start_date.year, start_date.month, start_date.day)
     
-    model.Title =  "Calendar: Week of %s %d, %s" % (calendar.month_name[start_date.month], start_date.day, start_date.year)
+    model.Title =  "Calendar: %s of %s %d, %s" % (span_term, calendar.month_name[start_date.month], start_date.day, start_date.year)
 
     html = []
     html.append("<style>")
@@ -144,26 +167,34 @@ def generate_calendar_week_html(start_date):
     html.append(".event { position: absolute; background: #def; border: 1px solid #69c; border-radius: 3px; padding: 2px; font-size: 0.85em; overflow: hidden; }")
     html.append(".feat { font-size: 1.1em; font-weight: bold; }")
     html.append(".timegrid { position: absolute; left: 0; right: 0; border-top: 1px dashed #ccc; font-size: 0.7em; color: #666; }")
-    html.append(".nav { display: flex; gap: 1em; }")
-    html.append(".nav-l, .nav-r { flex:1; }")
+    html.append(".nav.cal { display: flex; gap: 1em; }")
+    html.append(".nav.cal > * { flex:1; }")
     html.append(".nav-c { text-align:center; }")
     html.append(".nav-r { text-align:right; }")
     html.append("</style>")
     
-    html.append("<div class='nav'>")
+    html.append("<div class='nav cal'>")
     
     html.append("<div class='nav-l'>")
-    html.append("<a href='%s'>&laquo; Previous Week</a> | " % prev_link)
-    html.append("<a href='%s'>Next Week &raquo;</a>"  % next_link)
     html.append("</div>")
     
     html.append("<div class='nav-c'>")
-    html.append("<strong>Week of %s %d, %s</strong>" % (calendar.month_name[start_date.month], start_date.day, start_date.year))
+    html.append("<a href='?v=%s%s'>&laquo; Previous %s</a> | " % (span_link, prev_link, span_term))
+    html.append("<strong>%s of %s %d, %s</strong>" % (span_term, calendar.month_name[start_date.month], start_date.day, start_date.year))
+    html.append(" | <a href='?v=%s%s'>Next %s &raquo;</a>"  % (span_link, next_link, span_term))
     html.append("</div>")
     
     html.append("<div class='nav-r'>")
     html.append("<a href='%s'>Month</a>" % (month_link))
-    html.append(" | <strong>Week</strong>")
+    if dayCount == 7:
+        html.append(" | <strong>Week</strong>")
+    else:
+        html.append(" | <a href='?v=w%s'>Week</a>"  % (curr_link))
+    if dayCount == 1:
+        html.append(" | <strong>Day</strong>")
+    else:
+        html.append(" | <a href='?v=d%s'>Day</a>"  % (curr_link))
+        
     html.append("</div>")
     
     html.append("</div>")
@@ -229,8 +260,8 @@ def generate_calendar_week_html(start_date):
                 ' '.join(classes), top, height, left, width))
             html.append("%s<br><small>%s - %s</small>" % (
                 ev.MeetingName,
-                ev.MeetingDate.ToString("h:mmtt").lower().replace(":00",""),
-                ev.MeetingEnd.ToString("h:mmtt").lower().replace(":00","") if ev.MeetingEnd else ""
+                ev.MeetingDate.ToString("h:mmtt").lower().replace(":00","").replace('m',''),
+                ev.MeetingEnd.ToString("h:mmtt").lower().replace(":00","").replace('m','') if ev.MeetingEnd else ""
             ))
             html.append("</div></a>")
 
@@ -268,8 +299,20 @@ if True:
             except:
                 pass
     
+    vi = 0        
+    try:
+        vi = int(Data.v)
+    except:
+        pass
+    
     if Data.v == 'w':
-        print generate_calendar_week_html(d)
+        vi = 7
+        
+    elif Data.v == 'd':
+        vi = 1
+        
+    if vi > 0:
+        print generate_calendar_vert_html(d, vi)
     
     else:
         print generate_calendar_html(d)
