@@ -130,13 +130,16 @@ def generate_calendar_week_html(start_date):
     prev_link = "?v=w&d=%d-%d-%d" % (prev_date.year, prev_date.month, prev_date.day)
     next_link = "?v=w&d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
     month_link = "?d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
+    
+    model.Title =  "Calendar: Week of %s %d, %s" % (calendar.month_name[start_date.month], start_date.day, start_date.year)
 
     html = []
     html.append("<style>")
     html.append("div#main { width: 100% !important;}")
     html.append(".week-container { height: calc(100vh - 10em); overflow-y: scroll; border: 1px solid #999; }")
     html.append(".week { display: flex; min-height: %dpx; position: relative; padding-left:3em; }" % ((day_end - day_start) * hour_height))
-    html.append(".daycol { flex: 1; border-left: 1px solid #999; position: relative; }")
+    html.append(".daycol { flex: 3; border-left: 1px solid #999; position: relative; }")
+    html.append(".daycol.sun { flex: 4; }")
     html.append(".dayheader { background: #eee; text-align: center; padding: 4px; font-weight: bold; position: sticky; top: 0; z-index: 2; }")
     html.append(".event { position: absolute; background: #def; border: 1px solid #69c; border-radius: 3px; padding: 2px; font-size: 0.85em; overflow: hidden; }")
     html.append(".feat { font-size: 1.1em; font-weight: bold; }")
@@ -208,7 +211,7 @@ def generate_calendar_week_html(start_date):
                 event_positions[ev.MeetingId] = len(lanes) - 1
         lane_count = max(1, len(lanes))
 
-        html.append("<div class='daycol'>")
+        html.append("<div class='daycol %s'>" % calendar.day_abbr[day.weekday()].lower())
         html.append("<div class='dayheader'>%s<br>%d</div>" % (calendar.day_abbr[day.weekday()], day.day))
 
         for ev in events:
@@ -229,7 +232,7 @@ def generate_calendar_week_html(start_date):
             if ev.Featured:
                 classes.append('feat')
 
-            html.append("<a href='/Meeting/%s'>" % ev.MeetingId)
+            html.append("<a href='/Meeting/%s' title=\"%s\">" % (ev.MeetingId, ev.MeetingName))
             html.append("<div class='%s' style='top:%dpx; height:%dpx; left:%.2f%%; width:%.2f%%'>" % (
                 ' '.join(classes), top, height, left, width))
             html.append("%s<br><small>%s - %s</small>" % (
