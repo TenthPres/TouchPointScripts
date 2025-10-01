@@ -14,7 +14,7 @@ def get_events(dt):
     FROM Meetings m 
     LEFT JOIN Organizations o ON m.OrganizationId = o.OrganizationId
     
-    WHERE m.MeetingDate < DATEADD(day, 1, '{0}') AND m.MeetingEnd > '{0}'
+    WHERE m.MeetingDate < DATEADD(day, 1, '{0}') AND COALESCE(m.MeetingEnd, m.MeetingDate) > '{0}'
     ORDER BY MeetingDate, o.DivisionId
 '''.format(dt))
 
@@ -94,7 +94,7 @@ def generate_calendar_html(date):
                 if ev.Featured:
                     classes.append('feat')
                 
-                html.append("<a href='/Meeting/%s'>" % ev.MeetingId)
+                html.append("<a href='/Meeting/MeetingDetails/%s'>" % ev.MeetingId)
                 
                 html.append("<div class='%s'>" % ' '.join(classes))
                 
@@ -120,7 +120,7 @@ def generate_calendar_week_html(start_date):
     start_of_week = start_date - datetime.timedelta(days=start_date.weekday() + 1 if start_date.weekday() != 6 else 0)
     days = [start_of_week + datetime.timedelta(days=i) for i in range(7)]
 
-    hour_height = 60  # pixels per hour (so 30 min = 30px)
+    hour_height = 6  # vh per hour
     day_start = 0
     day_end = 24
     
@@ -137,7 +137,7 @@ def generate_calendar_week_html(start_date):
     html.append("<style>")
     html.append("div#main { width: 100% !important;}")
     html.append(".week-container { height: calc(100vh - 10em); overflow-y: scroll; border: 1px solid #999; }")
-    html.append(".week { display: flex; min-height: %dpx; position: relative; padding-left:3em; }" % ((day_end - day_start) * hour_height))
+    html.append(".week { display: flex; min-height: %dvh; position: relative; padding-left:3em; }" % ((day_end - day_start) * hour_height))
     html.append(".daycol { flex: 3; border-left: 1px solid #999; position: relative; }")
     html.append(".daycol.sun { flex: 4; }")
     html.append(".dayheader { background: #eee; text-align: center; padding: 4px; font-weight: bold; position: sticky; top: 0; z-index: 2; }")
@@ -149,14 +149,6 @@ def generate_calendar_week_html(start_date):
     html.append(".nav-c { text-align:center; }")
     html.append(".nav-r { text-align:right; }")
     html.append("</style>")
-
-    # JavaScript to scroll to 8am
-    html.append("<script>")
-    html.append("window.addEventListener('load', function(){")
-    html.append("  var container = document.querySelector('.week-container');")
-    html.append("  if(container){ container.scrollTop = %d; }" % (8 * hour_height))
-    html.append("});")
-    html.append("</script>")
     
     html.append("<div class='nav'>")
     
@@ -182,10 +174,10 @@ def generate_calendar_week_html(start_date):
     # Time grid lines (shared across all days)
     for h in range(day_start, day_end + 1):
         top = (h - day_start) * hour_height
-        html.append("<div class='timegrid' style='top:%dpx'>%02d:00</div>" % (top, h))
+        html.append("<div class='timegrid' style='top:%dvh'>%02d:00</div>" % (top, h))
         # half-hour line
         if h < day_end:
-            html.append("<div class='timegrid' style='top:%dpx'></div>" % (top + hour_height // 2))
+            html.append("<div class='timegrid' style='top:%dvh'></div>" % (top + hour_height // 2))
 
     for day in days:
         events = get_events(day)
@@ -232,8 +224,8 @@ def generate_calendar_week_html(start_date):
             if ev.Featured:
                 classes.append('feat')
 
-            html.append("<a href='/Meeting/%s' title=\"%s\">" % (ev.MeetingId, ev.MeetingName))
-            html.append("<div class='%s' style='top:%dpx; height:%dpx; left:%.2f%%; width:%.2f%%'>" % (
+            html.append("<a href='/Meeting/MeetingDetails/%s' title=\"%s\">" % (ev.MeetingId, ev.MeetingName))
+            html.append("<div class='%s' style='top:%dvh; height:%dvh; left:%.2f%%; width:%.2f%%'>" % (
                 ' '.join(classes), top, height, left, width))
             html.append("%s<br><small>%s - %s</small>" % (
                 ev.MeetingName,
@@ -245,6 +237,15 @@ def generate_calendar_week_html(start_date):
         html.append("</div>")  # end daycol
 
     html.append("</div></div>")  # end week and container
+    
+    # JavaScript to scroll to 8am
+    html.append("<script>")
+    html.append("window.addEventListener('load', function(){")
+    html.append("  var container = document.querySelector('.week-container');")
+    html.append("  if(container){ container.scrollTop = container.clientHeight / 2; }")
+    html.append("});")
+    html.append("</script>")
+    
     return "\n".join(html)
 
 
