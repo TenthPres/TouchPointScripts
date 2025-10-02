@@ -4,21 +4,61 @@ from clr import Convert
 from System import DateTime
 
 def get_events(dt):
-    return q.QuerySql('''
+    return q.QuerySql("""
     SELECT 
         m.MeetingDate, 
         m.MeetingEnd, 
         COALESCE(NULLIF(m.Description,''), o.organizationName) as MeetingName, 
         m.MeetingId,
         1 * o.ShowInSites as Featured
-    FROM Meetings m 
+    FROM Meetings m
     LEFT JOIN Organizations o ON m.OrganizationId = o.OrganizationId
     
     WHERE m.MeetingDate < DATEADD(day, 1, '{0}') 
     AND COALESCE(m.MeetingEnd, m.MeetingDate) > '{0}'
     AND m.Canceled = 0
     ORDER BY MeetingDate, o.DivisionId
-'''.format(dt))
+""".format(dt))
+
+def get_reservables(typ):
+    return q.QuerySql("""
+    SELECT ReservableId,
+    ParentId,
+    BadgeColor as Color,
+    Name,
+    Description,
+    IsReservable,
+    IsEnabled,
+    IsCountable,
+    Quantity
+    FROM Reservable
+    WHERE ReservableTypeId = 1
+        AND IsDeleted = 0
+        AND IsEnabled = 1
+    ;
+""")
+
+
+def get_reservations(typ, dt):
+    return q.QuerySql("""
+    SELECT  
+        rb.ReservableId,
+        rv.MeetingStart,
+        COALESCE(rv.MeetingEnd, rv.MeetingStart) as MeetingEnd, 
+        COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as SetupMinutes,
+        COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as TeardownMinutes,
+        COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name,
+        m.MeetingId
+    FROM Reservations rv
+        JOIN Reservable rb ON rv.ReservableId = rb.ReservableId
+        JOIN Meetings m ON rv.MeetingId = m.MeetingId
+        JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+    WHERE rv.MeetingId IS NOT NULL 
+        AND rv.MeetingEnd > '{0}'
+        AND rv.MeetingStart < DATEADD(day, 1, '{0}')
+    ORDER BY rb.ReservableId, rv.MeetingStart
+    ;
+""".format(dt))
 
 def generate_calendar_html(date):
     year = date.year
@@ -41,8 +81,7 @@ def generate_calendar_html(date):
 
     prev_link = "?d=%d-%d" % (prev_year, prev_month)
     next_link = "?d=%d-%d" % (next_year, next_month)
-    week_link = "?v=w&d=%d-%d-%d" % (date.year, date.month, date.day)
-    day_link = "?v=d&d=%d-%d-%d" % (date.year, date.month, date.day)
+    curr_link = "d=%d-%d-%d" % (date.year, date.month, date.day)
 
     html = []
     html.append("<style>")
@@ -74,8 +113,9 @@ def generate_calendar_html(date):
     
     html.append("<div class='nav-r'>")
     html.append("<strong>Month</strong>")
-    html.append(" | <a href='%s'>Week</a>" % (week_link))
-    html.append(" | <a href='%s'>Day</a>" % (day_link))
+    html.append(" | <a href='?v=w&%s'>Week</a>" % (curr_link))
+    html.append(" | <a href='?v=d&%s'>Day</a>" % (curr_link))
+    html.append(" | <a href='?v=r&%s'>Rooms</a>" % (curr_link))
     html.append("</div>")
     html.append("</div>")
 
@@ -149,10 +189,9 @@ def generate_calendar_vert_html(start_date, dayCount):
     prev_date = start_date - datetime.timedelta(days=dayCount)
     next_date = start_date + datetime.timedelta(days=dayCount)
     
-    prev_link = "&d=%d-%d-%d" % (prev_date.year, prev_date.month, prev_date.day)
-    next_link = "&d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
-    curr_link = "&d=%d-%d-%d" % (start_date.year, start_date.month, start_date.day)
-    month_link = "?d=%d-%d-%d" % (start_date.year, start_date.month, start_date.day)
+    prev_link = "d=%d-%d-%d" % (prev_date.year, prev_date.month, prev_date.day)
+    next_link = "d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
+    curr_link = "d=%d-%d-%d" % (start_date.year, start_date.month, start_date.day)
     
     model.Title =  "Calendar: %s of %s %d, %s" % (span_term, calendar.month_name[start_date.month], start_date.day, start_date.year)
 
@@ -179,21 +218,23 @@ def generate_calendar_vert_html(start_date, dayCount):
     html.append("</div>")
     
     html.append("<div class='nav-c'>")
-    html.append("<a href='?v=%s%s'>&laquo; Previous %s</a> | " % (span_link, prev_link, span_term))
+    html.append("<a href='?v=%s&%s'>&laquo; Previous %s</a> | " % (span_link, prev_link, span_term))
     html.append("<strong>%s of %s %d, %s</strong>" % (span_term, calendar.month_name[start_date.month], start_date.day, start_date.year))
-    html.append(" | <a href='?v=%s%s'>Next %s &raquo;</a>"  % (span_link, next_link, span_term))
+    html.append(" | <a href='?v=%s&%s'>Next %s &raquo;</a>"  % (span_link, next_link, span_term))
     html.append("</div>")
     
     html.append("<div class='nav-r'>")
-    html.append("<a href='%s'>Month</a>" % (month_link))
+    html.append("<a href='?%s'>Month</a>" % (curr_link))
     if dayCount == 7:
         html.append(" | <strong>Week</strong>")
     else:
-        html.append(" | <a href='?v=w%s'>Week</a>"  % (curr_link))
+        html.append(" | <a href='?v=w&%s'>Week</a>"  % (curr_link))
     if dayCount == 1:
         html.append(" | <strong>Day</strong>")
     else:
-        html.append(" | <a href='?v=d%s'>Day</a>"  % (curr_link))
+        html.append(" | <a href='?v=d&%s'>Day</a>"  % (curr_link))
+        
+    html.append(" | <a href='?v=r&%s'>Rooms</a>" % (curr_link))
         
     html.append("</div>")
     
@@ -239,7 +280,7 @@ def generate_calendar_vert_html(start_date, dayCount):
 
         for ev in events:
             start_hour = 0 if ev.MeetingDate < day_c else ev.MeetingDate.Hour + ev.MeetingDate.Minute / 60.0
-            end_hour = 24 if ev.MeetingEnd > tom_c else (ev.MeetingEnd.Hour + ev.MeetingEnd.Minute / 60.0) if ev.MeetingEnd else (start_hour + 1)
+            end_hour = 24 if ev.MeetingEnd > tom_c else (ev.MeetingEnd.Hour + ev.MeetingEnd.Minute / 60.0) if ev.MeetingEnd else (start_hour)
 
             if start_hour < day_start: start_hour = day_start
             if end_hour > day_end: end_hour = day_end
@@ -273,10 +314,170 @@ def generate_calendar_vert_html(start_date, dayCount):
     html.append("<script>")
     html.append("window.addEventListener('load', function(){")
     html.append("  var container = document.querySelector('.week-container');")
-    html.append("  if(container){ container.scrollTop = container.clientHeight / 2; }")
+    html.append("  if(container){ container.scrollTop = container.firstElementChild.clientHeight / 4; }")
     html.append("});")
     html.append("</script>")
     
+    return "\n".join(html)
+
+
+
+def generate_room_gantt_html(date):
+    rooms = get_reservables("r")
+    reservations = get_reservations("r", date)
+    
+    hour_width = 6  # vw per hour
+    total_hours = 25
+
+    room_dict = {r.ReservableId: r for r in rooms}
+    children = {r.ReservableId: [] for r in rooms}
+    for r in rooms:
+        if r.ParentId in room_dict:
+            children[r.ParentId].append(r)
+
+    def time_to_vw(dt):
+        hour = dt.Hour + dt.Minute / 60.0
+        return hour * hour_width
+        
+    prev_date = date - datetime.timedelta(days=1)
+    next_date = date + datetime.timedelta(days=1)
+    
+    prev_link = "d=%d-%d-%d" % (prev_date.year, prev_date.month, prev_date.day)
+    next_link = "d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
+    curr_link = "d=%d-%d-%d" % (date.year, date.month, date.day)
+
+    model.Title = "Usage for %s %d, %d" % (calendar.month_name[date.month], date.day, date.year)
+
+    html = []
+    html.append("<style>")
+    html.append(".gantt-wrapper { display: flex; height: calc(100vh - 10em); overflow-y: auto; }")
+    html.append(".room-labels { flex: 0 0 15em; border-right: 1px solid #999; background: #f9f9f9; white-space: nowrap; height:fit-content; }")
+    html.append(".room-label { padding: 4px; border-bottom: 1px solid #ccc; height: 2em; font-weight: bold; }")
+    html.append(".gantt-container { overflow-x: scroll; flex: 1; position: relative; height: fit-content; }")
+    html.append(".gantt-chart { position: relative; width: %dvw; }" % (hour_width * (total_hours-1)))
+    html.append(".room-row { position: relative; height: 2em; border-bottom: 1px solid #ccc; }")
+    html.append(".bar { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; color: #fff; padding: 2px; font-size: 0.8em; overflow: hidden; white-space: nowrap; }")
+    html.append(".setup { opacity: 0.5; }")
+    html.append(".timegrid { position: absolute; top: 0; height: 100%; border-left: 1px dashed #ccc; font-size: 0.7em; color: #666; text-align: center; }")
+    
+    html.append(".nav.cal { display: flex; gap: 1em; }")
+    html.append(".nav.cal > * { flex:1; }")
+    html.append(".nav-c { text-align:center; }")
+    html.append(".nav-r { text-align:right; }")
+    html.append("</style>")
+    
+    html.append("<div class='nav cal'>")
+    
+    html.append("<div class='nav-l'></div>")
+    
+    html.append("<div class='nav-c'>")
+    html.append("<a href='?v=r&%s'>&laquo; Previous</a> | " % (prev_link))
+    html.append("<strong>%s %d, %d</strong>" % (calendar.month_name[date.month], date.day, date.year))
+    html.append(" | <a href='?v=r&%s'>Next &raquo;</a>" % (next_link))
+    html.append("</div>")
+    
+    html.append("<div class='nav-r'>")
+    
+    html.append("<a href='?%s'>Month</a>" % (curr_link))
+    html.append(" | <a href='?v=w&%s'>Week</a>" % (curr_link))
+    html.append(" | <a href='?v=d&%s'>Day</a>" % (curr_link))
+    html.append(" | <strong>Rooms</strong>")
+    html.append("</div>")
+    html.append("</div>")
+
+    html.append("<div class='gantt-wrapper'>")
+    
+    def room_has_reservations(room):
+        if len([r for r in reservations if r.ReservableId == room.ReservableId]) > 0:
+            return True
+        
+        for child in children.get(room.ReservableId, []):
+            if room_has_reservations(child):
+                return True
+        
+        return False
+        
+
+    # Room rows and bars
+    def render_room_rows(room):
+        if not room_has_reservations(room):
+            return
+        
+        html.append("<div class='room-row'>")
+        for res in [r for r in reservations if r.ReservableId == room.ReservableId]:
+            start = res.MeetingStart
+            end = res.MeetingEnd
+            setup_start = start.AddMinutes(-res.SetupMinutes)
+            teardown_end = end.AddMinutes(res.TeardownMinutes)
+
+            left = time_to_vw(start)
+            width = time_to_vw(end) - left
+            setup_left = time_to_vw(setup_start)
+            setup_width = time_to_vw(teardown_end) - setup_left
+
+            color = room_dict[res.ReservableId].Color
+
+            html.append("<a href='/Meeting/MeetingDetails/%s'>" % res.MeetingId)
+
+            if res.SetupMinutes > 0 or res.TeardownMinutes > 0:
+                html.append("<div class='bar setup' style='left:%.2fvw; width:%.2fvw; background:%s;'></div>" % (
+                    setup_left, setup_width, color
+                ))
+
+            html.append("<div class='bar' style='left:%.2fvw; width:%.2fvw; background:%s;' title=\"%s\">%s</div>" % (
+                left, width, color, res.Name, res.Name
+            ))
+            html.append("</a>")
+        html.append("</div>")
+        for child in children.get(room.ReservableId, []):
+            render_room_rows(child)
+
+    # Static room labels
+    html.append("<div class='room-labels'>")
+    def render_room_labels(room, depth=0):
+        if not room_has_reservations(room):
+            return
+        
+        indent = "&nbsp;" * (depth * 4)
+        html.append("<div class='room-label'>%s%s</div>" % (indent, room.Name))
+        for child in children.get(room.ReservableId, []):
+            render_room_labels(child, depth + 1)
+    for room in rooms:
+        if room.ParentId not in room_dict:
+            render_room_labels(room)
+    html.append("</div>")
+
+    # Scrollable Gantt chart
+    html.append("<div class='gantt-container'>")
+    html.append("<div class='gantt-chart'>")
+
+    # Time grid lines
+    for h in range(total_hours):
+        left = (h - .5) * hour_width
+        label = "%02d:00" % (h % 24)
+        # lines for halves, labels for wholes.
+        html.append("<div class='timegrid' style='left:%.2fvw; width:%.2fvw;'>%s</div>" % (left, hour_width, label))
+
+        # whole hour line
+        if h < total_hours:
+            half_left = left + hour_width / 2
+            html.append("<div class='timegrid' style='left:%.2fvw; width:0; border-left: 1px dashed #ccc;'></div>" % half_left)
+
+    for room in rooms:
+        if room.ParentId not in room_dict:
+            render_room_rows(room)
+
+    html.append("</div></div>")  # end gantt-chart and container
+    html.append("</div>")  # end gantt-wrapper
+    
+    # JavaScript to scroll to 8am
+    html.append("<script>")
+    html.append("window.addEventListener('load', function(){")
+    html.append("  var container = document.querySelector('.gantt-container');")
+    html.append("  if(container){ container.scrollLeft = container.firstElementChild.clientWidth / 3; }")
+    html.append("});")
+    html.append("</script>")
+
     return "\n".join(html)
 
 
@@ -310,8 +511,11 @@ if True:
         
     elif Data.v == 'd':
         vi = 1
+    
+    if Data.v == 'r':
+        print generate_room_gantt_html(d)
         
-    if vi > 0:
+    elif vi > 0:
         print generate_calendar_vert_html(d, vi)
     
     else:
