@@ -384,6 +384,10 @@ def generate_room_gantt_html(date):
     html.append(" | <strong>Rooms</strong>")
     html.append("</div>")
     html.append("</div>")
+    
+    if len(reservations) == 0:
+        html.append("<div class='nav-c'><strong>No Reservations</strong></div>")
+        return "\n".join(html)
 
     html.append("<div class='gantt-wrapper'>")
     
