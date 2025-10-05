@@ -24,7 +24,7 @@ def get_reservables(typ):
     return q.QuerySql("""
     SELECT ReservableId,
     ParentId,
-    BadgeColor as Color,
+    COALESCE(BadgeColor, '#153aa8') as Color,
     Name,
     Description,
     IsReservable,
@@ -32,15 +32,19 @@ def get_reservables(typ):
     IsCountable,
     Quantity
     FROM Reservable
-    WHERE ReservableTypeId = 1
+    WHERE 1=1
+        -- AND ReservableTypeId = 1
         AND IsDeleted = 0
         AND IsEnabled = 1
+        
+    ORDER BY ReservableTypeId, Name
     ;
 """)
 
 
 def get_reservations(typ, dt):
     return q.QuerySql("""
+    -- Room things
     SELECT  
         rb.ReservableId,
         rv.MeetingStart,
@@ -48,16 +52,41 @@ def get_reservations(typ, dt):
         COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as SetupMinutes,
         COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as TeardownMinutes,
         COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name,
-        m.MeetingId
+        0 as Quantity,
+        m.MeetingId,
+        o.LeaderName
+    INTO #reservables
     FROM Reservations rv
         JOIN Reservable rb ON rv.ReservableId = rb.ReservableId
         JOIN Meetings m ON rv.MeetingId = m.MeetingId
         JOIN Organizations o ON m.OrganizationId = o.OrganizationId
     WHERE rv.MeetingId IS NOT NULL 
         AND rv.MeetingEnd > '{0}'
+        AND rv.MeetingStart < DATEADD(day, 1, '{0}');
+    
+    -- Returns reservable items (furniture and services, not reservables)
+    SELECT 
+        ri.ReservableId,
+        rv.MeetingStart,
+        COALESCE(rv.MeetingEnd, rv.MeetingStart) as MeetingEnd, 
+        COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as SetupMinutes,
+        COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as TeardownMinutes,
+        COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name,
+        ri.Quantity,
+        m.MeetingId,
+        o.LeaderName
+    INTO #Jawns
+    FROM ReservationItems ri 
+        LEFT JOIN Reservations rv ON ri.ReservationId = rv.ReservationId
+        JOIN Reservable rb ON ri.ReservableId = rb.ReservableId
+        JOIN Meetings m ON rv.MeetingId = m.MeetingId
+        JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+    WHERE rv.MeetingId IS NOT NULL 
+        AND rv.MeetingEnd > '{0}'
         AND rv.MeetingStart < DATEADD(day, 1, '{0}')
-    ORDER BY rb.ReservableId, rv.MeetingStart
     ;
+    
+    SELECT * FROM #reservables UNION SELECT * FROM #Jawns;
 """.format(dt))
 
 def generate_calendar_html(date):
@@ -115,7 +144,7 @@ def generate_calendar_html(date):
     html.append("<strong>Month</strong>")
     html.append(" | <a href='?v=w&%s'>Week</a>" % (curr_link))
     html.append(" | <a href='?v=d&%s'>Day</a>" % (curr_link))
-    html.append(" | <a href='?v=r&%s'>Rooms</a>" % (curr_link))
+    html.append(" | <a href='?v=r&%s'>Reservables</a>" % (curr_link))
     html.append("</div>")
     html.append("</div>")
 
@@ -234,7 +263,7 @@ def generate_calendar_vert_html(start_date, dayCount):
     else:
         html.append(" | <a href='?v=d&%s'>Day</a>"  % (curr_link))
         
-    html.append(" | <a href='?v=r&%s'>Rooms</a>" % (curr_link))
+    html.append(" | <a href='?v=r&%s'>Reservables</a>" % (curr_link))
         
     html.append("</div>")
     
@@ -320,19 +349,17 @@ def generate_calendar_vert_html(start_date, dayCount):
     
     return "\n".join(html)
 
-
-
 def generate_room_gantt_html(date):
-    rooms = get_reservables("r")
+    reservables = get_reservables("r")
     reservations = get_reservations("r", date)
     
     hour_width = 6  # vw per hour
     total_hours = 25
 
-    room_dict = {r.ReservableId: r for r in rooms}
-    children = {r.ReservableId: [] for r in rooms}
-    for r in rooms:
-        if r.ParentId in room_dict:
+    reservable_dict = {r.ReservableId: r for r in reservables}
+    children = {r.ReservableId: [] for r in reservables}
+    for r in reservables:
+        if r.ParentId in reservable_dict:
             children[r.ParentId].append(r)
 
     def time_to_vw(dt):
@@ -356,7 +383,8 @@ def generate_room_gantt_html(date):
     html.append(".gantt-container { overflow-x: scroll; flex: 1; position: relative; height: fit-content; }")
     html.append(".gantt-chart { position: relative; width: %dvw; }" % (hour_width * (total_hours-1)))
     html.append(".room-row { position: relative; height: 2em; border-bottom: 1px solid #ccc; }")
-    html.append(".bar { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; color: #fff; padding: 2px; font-size: 0.8em; overflow: hidden; white-space: nowrap; }")
+    html.append(".bar { position: absolute; border-radius: 3px; color: #fff; padding: 2px; font-size: 0.8em; overflow: hidden; white-space: nowrap; line-height:.8em; }")
+    html.append(".bar small { opacity:.75; }")
     html.append(".setup { opacity: 0.5; }")
     html.append(".timegrid { position: absolute; top: 0; height: 100%; border-left: 1px dashed #ccc; font-size: 0.7em; color: #666; text-align: center; }")
     
@@ -381,7 +409,7 @@ def generate_room_gantt_html(date):
     html.append("<a href='?%s'>Month</a>" % (curr_link))
     html.append(" | <a href='?v=w&%s'>Week</a>" % (curr_link))
     html.append(" | <a href='?v=d&%s'>Day</a>" % (curr_link))
-    html.append(" | <strong>Rooms</strong>")
+    html.append(" | <strong>Reservables</strong>")
     html.append("</div>")
     html.append("</div>")
     
@@ -391,24 +419,45 @@ def generate_room_gantt_html(date):
 
     html.append("<div class='gantt-wrapper'>")
     
-    def room_has_reservations(room):
-        if len([r for r in reservations if r.ReservableId == room.ReservableId]) > 0:
+    
+    def assign_lanes(reservations):
+        lanes = []
+        for res in reservations:
+            placed = False
+            for lane in lanes:
+                if all(res.MeetingStart >= r.MeetingEnd or res.MeetingEnd <= r.MeetingStart for r in lane):
+                    lane.append(res)
+                    placed = True
+                    break
+            if not placed:
+                lanes.append([res])
+        lane_map = {}
+        for i, lane in enumerate(lanes):
+            for res in lane:
+                lane_map[res] = i
+        return lane_map, max(1, len(lanes))
+    
+    
+    def reservable_has_reservations(rbl):
+        if len(rbl._reservations) > 0:
             return True
         
-        for child in children.get(room.ReservableId, []):
-            if room_has_reservations(child):
+        for child in children.get(rbl.ReservableId, []):
+            if reservable_has_reservations(child):
                 return True
         
         return False
         
 
     # Room rows and bars
-    def render_room_rows(room):
-        if not room_has_reservations(room):
+    def render_row(rbl):
+        if not reservable_has_reservations(rbl):
             return
         
-        html.append("<div class='room-row'>")
-        for res in [r for r in reservations if r.ReservableId == room.ReservableId]:
+        row_height = rbl._lanes[1] * 2
+        
+        html.append("<div class='room-row' style='height:%dem'>" % (row_height))
+        for res in rbl._reservations:
             start = res.MeetingStart
             end = res.MeetingEnd
             setup_start = start.AddMinutes(-res.SetupMinutes)
@@ -419,36 +468,60 @@ def generate_room_gantt_html(date):
             setup_left = time_to_vw(setup_start)
             setup_width = time_to_vw(teardown_end) - setup_left
 
-            color = room_dict[res.ReservableId].Color
+            color = reservable_dict[res.ReservableId].Color
 
             html.append("<a href='/Meeting/MeetingDetails/%s'>" % res.MeetingId)
+            
+            
+            lane = rbl._lanes[0][res]
+            top_offset = round(lane / (.01 * rbl._lanes[1]), 2)
+            bot_offset = round(((rbl._lanes[1] - 1 - lane) / (.01 * rbl._lanes[1])), 2)
 
             if res.SetupMinutes > 0 or res.TeardownMinutes > 0:
-                html.append("<div class='bar setup' style='left:%.2fvw; width:%.2fvw; background:%s;'></div>" % (
-                    setup_left, setup_width, color
+                html.append("<div class='bar setup' style='left:%.2fvw; width:%.2fvw; background:%s; top:calc(%.2f%% + 1px); bottom:calc(%.2f%% + 1px);'></div>" % (
+                    setup_left, setup_width, color, top_offset, bot_offset
                 ))
 
-            html.append("<div class='bar' style='left:%.2fvw; width:%.2fvw; background:%s;' title=\"%s\">%s</div>" % (
-                left, width, color, res.Name, res.Name
+            html.append("<div class='bar' style='left:%.2fvw; width:%.2fvw; background:%s; top:calc(%.2f%% + 1px); bottom:calc(%.2f%% + 1px);' title=\"%s\">%s" % (
+                left, width, color, top_offset, bot_offset, res.Name, res.Name
             ))
+            label = ""
+            if res.Quantity > 0:
+                label = "(%d) " % (res.Quantity)
+            if res.LeaderName is not None:
+                label = "%s%s" % (label, res.LeaderName)
+            if label != "":
+                html.append("<small><br />%s</small>" % (label))
+            html.append("</div>")
             html.append("</a>")
         html.append("</div>")
-        for child in children.get(room.ReservableId, []):
-            render_room_rows(child)
+        
+        for child in children.get(rbl.ReservableId, []):
+            render_row(child)
+            
+    
+    for rbl in reservables:
+        rbl._reservations = [r for r in reservations if r.ReservableId == rbl.ReservableId]
+        rbl._lanes = assign_lanes(rbl._reservations)
 
     # Static room labels
     html.append("<div class='room-labels'>")
-    def render_room_labels(room, depth=0):
-        if not room_has_reservations(room):
+    
+    def render_labels(rbl, depth=0):
+        if not reservable_has_reservations(rbl):
             return
         
         indent = "&nbsp;" * (depth * 4)
-        html.append("<div class='room-label'>%s%s</div>" % (indent, room.Name))
-        for child in children.get(room.ReservableId, []):
-            render_room_labels(child, depth + 1)
-    for room in rooms:
-        if room.ParentId not in room_dict:
-            render_room_labels(room)
+        height = rbl._lanes[1] * 2
+        html.append("<div class='room-label' style='height:%dem;'>%s%s</div>" % (height, indent, rbl.Name))
+        for child in children.get(rbl.ReservableId, []):
+            render_labels(child, depth + 1)
+            
+    
+    for rbl in reservables:
+        if rbl.ParentId not in reservable_dict:
+            render_labels(rbl)
+    
     html.append("</div>")
 
     # Scrollable Gantt chart
@@ -467,9 +540,9 @@ def generate_room_gantt_html(date):
             half_left = left + hour_width / 2
             html.append("<div class='timegrid' style='left:%.2fvw; width:0; border-left: 1px dashed #ccc;'></div>" % half_left)
 
-    for room in rooms:
-        if room.ParentId not in room_dict:
-            render_room_rows(room)
+    for room in reservables:
+        if room.ParentId not in reservable_dict:
+            render_row(room)
 
     html.append("</div></div>")  # end gantt-chart and container
     html.append("</div>")  # end gantt-wrapper
