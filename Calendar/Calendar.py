@@ -50,7 +50,7 @@ def get_reservations(typ, dt):
         rv.MeetingStart,
         COALESCE(rv.MeetingEnd, rv.MeetingStart) as MeetingEnd, 
         COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as SetupMinutes,
-        COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as TeardownMinutes,
+        COALESCE(NULLIF(rv.TeardownMinutes, ''), 0) as TeardownMinutes,
         COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name,
         0 as Quantity,
         m.MeetingId,
@@ -64,13 +64,13 @@ def get_reservations(typ, dt):
         AND rv.MeetingEnd > '{0}'
         AND rv.MeetingStart < DATEADD(day, 1, '{0}');
     
-    -- Returns reservable items (furniture and services, not reservables)
+    -- Returns reservable items (furniture and services, not rooms)
     SELECT 
         ri.ReservableId,
         rv.MeetingStart,
         COALESCE(rv.MeetingEnd, rv.MeetingStart) as MeetingEnd, 
         COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as SetupMinutes,
-        COALESCE(NULLIF(rv.SetupMinutes, ''), 0) as TeardownMinutes,
+        COALESCE(NULLIF(rv.TeardownMinutes, ''), 0) as TeardownMinutes,
         COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name,
         ri.Quantity,
         m.MeetingId,
@@ -425,7 +425,7 @@ def generate_room_gantt_html(date):
         for res in reservations:
             placed = False
             for lane in lanes:
-                if all(res.MeetingStart >= r.MeetingEnd or res.MeetingEnd <= r.MeetingStart for r in lane):
+                if all(res.MeetingStart.AddMinutes(-res.SetupMinutes) >= r.MeetingEnd.AddMinutes(r.TeardownMinutes) or res.MeetingEnd.AddMinutes(res.TeardownMinutes) <= r.MeetingStart.AddMinutes(-r.SetupMinutes) for r in lane):
                     lane.append(res)
                     placed = True
                     break
