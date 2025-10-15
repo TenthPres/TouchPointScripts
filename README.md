@@ -4,10 +4,10 @@ System we call "MyTenth."
 
 ## Tools Available Now
 
-- [**Attendance Redirect**](AttendanceRedirect) - This tool helps get people to the right Registration for Record Family Attendance.
-
 - [**Assign Shepherd**](AssignShepherd) - This tool allows leaders to be assigned as designated "shepherds" for a family.  
 This shepherd can then be referenced in Tasks or when Counseling situations arise. 
+
+- [**Attendance Redirect**](AttendanceRedirect) - This tool helps get people to the right Registration for Record Family Attendance.
 
 - [**Children's Involvement Rules**](ChildrensInvolvementRules) - When added to your daily batch, this script will make sure any
 Children's Involvements have their proper Extra Values applied, such as the MinistrySafe and Background check heart and checkmark 
@@ -61,6 +61,9 @@ across multiple Mailchimp accounts and with Mailchimp Interests as TouchPoint Su
 non-weekly Involvements based on Extra Values on the Involvement. Once the meetings are created, automatic attendance reminders will
 be sent. 
 
+- [**Outstanding Tasks**](OutstandingTasks) - This module includes a report that lists outstanding tasks for the current user, and can
+automatically send email reminders of that report to those with outstanding tasks.
+
 - [**Prayer List**](Prayer List) - This simple script shows a list of prayer requests (notes with a specific tag) that have been submitted
 in the last week. The page automatically reloads every few seconds because we use this for live submissions during a worship service.
 
@@ -109,4 +112,5 @@ making the change, the person to whom the change was made, and the content of th
 
 - [**Summon Parent**](SummonParent) - This is a tool intended for children's workers to "summon" parents when needed.  We have it 
 linked within the Mobile App, so workers can send a text in just a few taps, without revealing the personal phone number of either 
-the parent or the volunteer.  Eventually, we hope to integrate this with our pager system, as well. 
+the parent or the volunteer.  Eventually, we hope to integrate this with our pager system, as well.
+

@@ -1,6 +1,8 @@
 # This script adds NonWeekly Meetings to the MorningBatch so meetings are created automatically.
 # Then, execute the first round of creation.
 
+global model, Data, q
+
 batchContent = model.PythonContent('MorningBatch')
 if '''model.CallScript("NonweeklyMeetings")''' not in batchContent and '''model.CallScript('NonweeklyMeetings')''' not in batchContent:
     batchContent = batchContent + '''\n\nmodel.CallScript("NonweeklyMeetings")'''
