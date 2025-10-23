@@ -1,3 +1,12 @@
+# This is a script to provide different calendar views.
+
+# Pckgd
+# Title: Calendar
+# Description: Provides month, week, day, and reservables calendar views.
+# Updates from: github/TenthPres/TouchPointScripts/Calendar/Calendar.py
+# License: AGPL-3.0
+# Author: James at Tenth
+
 import calendar
 import datetime
 # noinspection PyUnresolvedReferences
