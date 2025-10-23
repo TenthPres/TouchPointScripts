@@ -3,7 +3,7 @@
 # Title: Pckgd
 # Description: A module for managing packages and their updates.
 # Updates from: github/TenthPres/TouchPointScripts/Pckgd/Pckgd.py
-# Version: X
+# Version: 0.0.2
 # License: AGPL-3.0
 # Author: James Kurtz
 
@@ -63,12 +63,28 @@ class Pckgd:
                 break
         return
 
+    def get_action_buttons(self):
+        buttons = []
+        if 'Updates From' in self.headers:
+            buttons.append({
+                "label": "View Update Source",
+                "url": self.get_update_source(),
+                "class": "btn-primary"
+            })
+
+        return buttons
+
     def determine_version(self):
         # if version header is set AND it's a hex value or numbered, assume it's right.
         if 'Version' in self.headers and self.headers['Version'].strip() != "" and all(c in '0123456789abcdefABCDEF.' for c in self.headers['Version']):
             self.version = self.headers['Version']
         else:
-            self.version = Pckgd.calculate_version_hash(self.body)
+            # find relevant part of body to hash
+            b = self.body.split("Pckgd", 1)[1]
+            if Pckgd.do_not_edit_demarcation in b:
+                b = b.split(Pckgd.do_not_edit_demarcation, 1)[1]
+
+            self.version = Pckgd.calculate_version_hash(b)
             self.headers['Version'] = self.version
 
     """ Sets or updates a header for a given body. """
