@@ -2,7 +2,7 @@
 # Title: Pckgd, A Package Manager
 # Description: A module for managing packages and their updates.
 # Updates from: github/TenthPres/TouchPointScripts/Pckgd/Pckgd.py
-# Version: 0.0.2
+# Version: 0.0.3
 # License: AGPL-3.0
 # Author: James at Tenth
 
