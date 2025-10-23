@@ -1,7 +1,11 @@
 import calendar
 import datetime
+# noinspection PyUnresolvedReferences
 from clr import Convert
+# noinspection PyUnresolvedReferences
 from System import DateTime
+
+global model, Data, q
 
 def get_events(dt):
     return q.QuerySql("""
@@ -20,7 +24,8 @@ def get_events(dt):
     ORDER BY MeetingDate, o.DivisionId
 """.format(dt))
 
-def get_reservables(typ):
+def get_reservables():
+    # noinspection SqlResolve
     return q.QuerySql("""
     SELECT ReservableId,
     ParentId,
@@ -32,9 +37,8 @@ def get_reservables(typ):
     IsCountable,
     Quantity
     FROM Reservable
-    WHERE 1=1
+    WHERE IsDeleted = 0
         -- AND ReservableTypeId = 1
-        AND IsDeleted = 0
         AND IsEnabled = 1
         
     ORDER BY ReservableTypeId, Name
@@ -42,7 +46,7 @@ def get_reservables(typ):
 """)
 
 
-def get_reservations(typ, dt):
+def get_reservations(dt):
     return q.QuerySql("""
     -- Room things
     SELECT  
@@ -142,15 +146,15 @@ def generate_calendar_html(date):
     
     html.append("<div class='nav-r'>")
     html.append("<strong>Month</strong>")
-    html.append(" | <a href='?v=w&%s'>Week</a>" % (curr_link))
-    html.append(" | <a href='?v=d&%s'>Day</a>" % (curr_link))
-    html.append(" | <a href='?v=r&%s'>Reservables</a>" % (curr_link))
+    html.append(" | <a href='?v=w&%s'>Week</a>" % curr_link)
+    html.append(" | <a href='?v=d&%s'>Day</a>" % curr_link)
+    html.append(" | <a href='?v=r&%s'>Reservables</a>" % curr_link)
     html.append("</div>")
     html.append("</div>")
 
     
     html.append("<table>")
-    html.append("<tr>" + "".join("<th>%s</th>" % d for d in ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]) + "</tr>")
+    html.append("<tr>" + "".join("<th>%s</th>" % dn for dn in ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]) + "</tr>")
 
     for week in month_days:
         html.append("<tr>")
@@ -190,24 +194,24 @@ def generate_calendar_html(date):
     return "\n".join(html)
 
 
-def generate_calendar_vert_html(start_date, dayCount):
+def generate_calendar_vert_html(start_date, day_count):
     """
     Generate an HTML week view calendar with overlap handling,
     horizontal hour/half-hour lines, scrollable, and auto-scroll to 8am.
     """
     start_of_span = start_date
-    if dayCount % 7 == 0:
+    if day_count % 7 == 0:
         start_of_span = start_date - datetime.timedelta(days=start_date.weekday() + 1 if start_date.weekday() != 6 else 0)
-    days = [start_of_span + datetime.timedelta(days=i) for i in range(dayCount)]
+    days = [start_of_span + datetime.timedelta(days=i) for i in range(day_count)]
     
     span_term = "Span"
-    span_link = str(dayCount)
-    if dayCount == 14:
+    span_link = str(day_count)
+    if day_count == 14:
         span_term = "Fortnight"
-    elif dayCount == 7:
+    elif day_count == 7:
         span_term = "Week"
         span_link = 'w'
-    elif dayCount == 1:
+    elif day_count == 1:
         span_term = "Day"
         span_link = 'd'
 
@@ -215,8 +219,8 @@ def generate_calendar_vert_html(start_date, dayCount):
     day_start = 0
     day_end = 24
     
-    prev_date = start_date - datetime.timedelta(days=dayCount)
-    next_date = start_date + datetime.timedelta(days=dayCount)
+    prev_date = start_date - datetime.timedelta(days=day_count)
+    next_date = start_date + datetime.timedelta(days=day_count)
     
     prev_link = "d=%d-%d-%d" % (prev_date.year, prev_date.month, prev_date.day)
     next_link = "d=%d-%d-%d" % (next_date.year, next_date.month, next_date.day)
@@ -253,17 +257,17 @@ def generate_calendar_vert_html(start_date, dayCount):
     html.append("</div>")
     
     html.append("<div class='nav-r'>")
-    html.append("<a href='?%s'>Month</a>" % (curr_link))
-    if dayCount == 7:
+    html.append("<a href='?%s'>Month</a>" % curr_link)
+    if day_count == 7:
         html.append(" | <strong>Week</strong>")
     else:
-        html.append(" | <a href='?v=w&%s'>Week</a>"  % (curr_link))
-    if dayCount == 1:
+        html.append(" | <a href='?v=w&%s'>Week</a>" % curr_link)
+    if day_count == 1:
         html.append(" | <strong>Day</strong>")
     else:
-        html.append(" | <a href='?v=d&%s'>Day</a>"  % (curr_link))
+        html.append(" | <a href='?v=d&%s'>Day</a>" % curr_link)
         
-    html.append(" | <a href='?v=r&%s'>Reservables</a>" % (curr_link))
+    html.append(" | <a href='?v=r&%s'>Reservables</a>" % curr_link)
         
     html.append("</div>")
     
@@ -309,7 +313,7 @@ def generate_calendar_vert_html(start_date, dayCount):
 
         for ev in events:
             start_hour = 0 if ev.MeetingDate < day_c else ev.MeetingDate.Hour + ev.MeetingDate.Minute / 60.0
-            end_hour = 24 if ev.MeetingEnd > tom_c else (ev.MeetingEnd.Hour + ev.MeetingEnd.Minute / 60.0) if ev.MeetingEnd else (start_hour)
+            end_hour = 24 if ev.MeetingEnd > tom_c else (ev.MeetingEnd.Hour + ev.MeetingEnd.Minute / 60.0) if ev.MeetingEnd else start_hour
 
             if start_hour < day_start: start_hour = day_start
             if end_hour > day_end: end_hour = day_end
@@ -350,8 +354,8 @@ def generate_calendar_vert_html(start_date, dayCount):
     return "\n".join(html)
 
 def generate_room_gantt_html(date):
-    reservables = get_reservables("r")
-    reservations = get_reservations("r", date)
+    reservables = get_reservables()
+    reservations = get_reservations(date)
     
     hour_width = 6  # vw per hour
     total_hours = 25
@@ -399,16 +403,16 @@ def generate_room_gantt_html(date):
     html.append("<div class='nav-l'></div>")
     
     html.append("<div class='nav-c'>")
-    html.append("<a href='?v=r&%s'>&laquo; Previous</a> | " % (prev_link))
+    html.append("<a href='?v=r&%s'>&laquo; Previous</a> | " % prev_link)
     html.append("<strong>%s %d, %d</strong>" % (calendar.month_name[date.month], date.day, date.year))
-    html.append(" | <a href='?v=r&%s'>Next &raquo;</a>" % (next_link))
+    html.append(" | <a href='?v=r&%s'>Next &raquo;</a>" % next_link)
     html.append("</div>")
     
     html.append("<div class='nav-r'>")
     
-    html.append("<a href='?%s'>Month</a>" % (curr_link))
-    html.append(" | <a href='?v=w&%s'>Week</a>" % (curr_link))
-    html.append(" | <a href='?v=d&%s'>Day</a>" % (curr_link))
+    html.append("<a href='?%s'>Month</a>" % curr_link)
+    html.append(" | <a href='?v=w&%s'>Week</a>" % curr_link)
+    html.append(" | <a href='?v=d&%s'>Day</a>" % curr_link)
     html.append(" | <strong>Reservables</strong>")
     html.append("</div>")
     html.append("</div>")
@@ -420,9 +424,9 @@ def generate_room_gantt_html(date):
     html.append("<div class='gantt-wrapper'>")
     
     
-    def assign_lanes(reservations):
+    def assign_lanes(reses):
         lanes = []
-        for res in reservations:
+        for res in reses:
             placed = False
             for lane in lanes:
                 if all(res.MeetingStart.AddMinutes(-res.SetupMinutes) >= r.MeetingEnd.AddMinutes(r.TeardownMinutes) or res.MeetingEnd.AddMinutes(res.TeardownMinutes) <= r.MeetingStart.AddMinutes(-r.SetupMinutes) for r in lane):
@@ -438,11 +442,11 @@ def generate_room_gantt_html(date):
         return lane_map, max(1, len(lanes))
     
     
-    def reservable_has_reservations(rbl):
-        if len(rbl._reservations) > 0:
+    def reservable_has_reservations(rsbl):
+        if len(rsbl._reservations) > 0:
             return True
         
-        for child in children.get(rbl.ReservableId, []):
+        for child in children.get(rsbl.ReservableId, []):
             if reservable_has_reservations(child):
                 return True
         
@@ -450,21 +454,21 @@ def generate_room_gantt_html(date):
         
 
     # Room rows and bars
-    def render_row(rbl):
-        if not reservable_has_reservations(rbl):
+    def render_row(rsbl):
+        if not reservable_has_reservations(rsbl):
             return
         
-        row_height = rbl._lanes[1] * 2
+        row_height = rsbl._lanes[1] * 2
         
-        html.append("<div class='room-row' style='height:%dem'>" % (row_height))
-        for res in rbl._reservations:
+        html.append("<div class='room-row' style='height:%dem'>" % row_height)
+        for res in rsbl._reservations:
             start = res.MeetingStart
             end = res.MeetingEnd
             setup_start = start.AddMinutes(-res.SetupMinutes)
             teardown_end = end.AddMinutes(res.TeardownMinutes)
 
-            left = time_to_vw(start)
-            width = time_to_vw(end) - left
+            l = time_to_vw(start)
+            width = time_to_vw(end) - l
             setup_left = time_to_vw(setup_start)
             setup_width = time_to_vw(teardown_end) - setup_left
 
@@ -473,9 +477,9 @@ def generate_room_gantt_html(date):
             html.append("<a href='/Meeting/MeetingDetails/%s'>" % res.MeetingId)
             
             
-            lane = rbl._lanes[0][res]
-            top_offset = round(lane / (.01 * rbl._lanes[1]), 2)
-            bot_offset = round(((rbl._lanes[1] - 1 - lane) / (.01 * rbl._lanes[1])), 2)
+            lane = rsbl._lanes[0][res]
+            top_offset = round(lane / (.01 * rsbl._lanes[1]), 2)
+            bot_offset = round(((rsbl._lanes[1] - 1 - lane) / (.01 * rsbl._lanes[1])), 2)
 
             if res.SetupMinutes > 0 or res.TeardownMinutes > 0:
                 html.append("<div class='bar setup' style='left:%.2fvw; width:%.2fvw; background:%s; top:calc(%.2f%% + 1px); bottom:calc(%.2f%% + 1px);'></div>" % (
@@ -483,20 +487,20 @@ def generate_room_gantt_html(date):
                 ))
 
             html.append("<div class='bar' style='left:%.2fvw; width:%.2fvw; background:%s; top:calc(%.2f%% + 1px); bottom:calc(%.2f%% + 1px);' title=\"%s\">%s" % (
-                left, width, color, top_offset, bot_offset, res.Name, res.Name
+                l, width, color, top_offset, bot_offset, res.Name, res.Name
             ))
-            label = ""
+            lbl = ""
             if res.Quantity > 0:
-                label = "(%d) " % (res.Quantity)
+                lbl = "(%d) " % res.Quantity
             if res.LeaderName is not None:
-                label = "%s%s" % (label, res.LeaderName)
-            if label != "":
-                html.append("<small><br />%s</small>" % (label))
+                lbl = "%s%s" % (lbl, res.LeaderName)
+            if lbl != "":
+                html.append("<small><br />%s</small>" % lbl)
             html.append("</div>")
             html.append("</a>")
         html.append("</div>")
         
-        for child in children.get(rbl.ReservableId, []):
+        for child in children.get(rsbl.ReservableId, []):
             render_row(child)
             
     
@@ -507,14 +511,14 @@ def generate_room_gantt_html(date):
     # Static room labels
     html.append("<div class='room-labels'>")
     
-    def render_labels(rbl, depth=0):
-        if not reservable_has_reservations(rbl):
+    def render_labels(rsbl, depth=0):
+        if not reservable_has_reservations(rsbl):
             return
         
         indent = "&nbsp;" * (depth * 4)
-        height = rbl._lanes[1] * 2
-        html.append("<div class='room-label' style='height:%dem;'>%s%s</div>" % (height, indent, rbl.Name))
-        for child in children.get(rbl.ReservableId, []):
+        height = rsbl._lanes[1] * 2
+        html.append("<div class='room-label' style='height:%dem;'>%s%s</div>" % (height, indent, rsbl.Name))
+        for child in children.get(rsbl.ReservableId, []):
             render_labels(child, depth + 1)
             
     
@@ -590,12 +594,12 @@ if True:
         vi = 1
     
     if Data.v == 'r':
-        print generate_room_gantt_html(d)
+        print(generate_room_gantt_html(d))
         
     elif vi > 0:
-        print generate_calendar_vert_html(d, vi)
+        print(generate_calendar_vert_html(d, vi))
     
     else:
-        print generate_calendar_html(d)
+        print(generate_calendar_html(d))
 
 #
