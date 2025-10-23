@@ -1,16 +1,16 @@
-
 # Pckgd
-# Title: Pckgd
+# Title: Pckgd, A Package Manager
 # Description: A module for managing packages and their updates.
 # Updates from: github/TenthPres/TouchPointScripts/Pckgd/Pckgd.py
 # Version: 0.0.2
 # License: AGPL-3.0
-# Author: James Kurtz
+# Author: James at Tenth
 
-# Do not make edits to these files.  They will be overwritten during updates.
+# Do not make edits to this file.  They will be overwritten during updates.
 
 global model, q, Data
 import json
+import time
 
 
 class Pckgd:
@@ -20,10 +20,16 @@ class Pckgd:
         self.typeId = type_id
         self.headers = {}
         self.version = None
+        self._has_update_available = None
         self.parse_headers()
         self.determine_version()
+        self.add_dependencies()
+
+    def __del__(self):
+        Pckgd._save_meta_if_dirty()
 
     do_not_edit_demarcation = "========="
+    dependents = {}
 
     @staticmethod
     def find_installed_packages():
@@ -48,7 +54,8 @@ class Pckgd:
         for line in lines:
             if (self.typeId == 5 and line.strip().startswith('#')) or \
                     (self.typeId == 4 and line.strip().startswith('--')):
-                parts = line[1:].split(':', 1)
+                prefix_chars = 1 if self.typeId == 5 else 2
+                parts = line[prefix_chars:].split(':', 1)
                 if len(parts) == 2:
                     key = parts[0].strip()
                     value = parts[1].strip()
@@ -65,14 +72,28 @@ class Pckgd:
 
     def get_action_buttons(self):
         buttons = []
-        if 'Updates From' in self.headers:
-            buttons.append({
-                "label": "View Update Source",
-                "url": self.get_update_source(),
-                "class": "btn-primary"
-            })
 
-        return buttons
+        if self.typeId == 5:
+            buttons.append("""
+            <a href="/PyScript/{}" class="btn btn-default">Run</a>
+            """.format(self.filename))
+        elif self.typeId == 4:
+            buttons.append("""
+            <a href="/RunScript/{}" class="btn btn-default">Run</a>
+            """.format(self.filename))
+
+        link = self.get_repo_link()
+        if link:
+            buttons.append("""
+            <a href="{}" class="btn btn-default" target="_blank" title="View on GitHub"><i class="fa fa-github"></i></a>
+            """.format(link))
+
+        if self.has_update_available():
+            buttons.append("""
+            <a href="PyScript/Pckgd?v=update&pkg={}" class="btn btn-primary">Update</a>
+            """.format(self.filename))
+
+        return "\n".join(buttons)
 
     def determine_version(self):
         # if version header is set AND it's a hex value or numbered, assume it's right.
@@ -80,12 +101,80 @@ class Pckgd:
             self.version = self.headers['Version']
         else:
             # find relevant part of body to hash
-            b = self.body.split("Pckgd", 1)[1]
+            b = self.body
+            if "Pckgd" in self.body:
+                b = b.split("Pckgd", 1)[1]
             if Pckgd.do_not_edit_demarcation in b:
                 b = b.split(Pckgd.do_not_edit_demarcation, 1)[1]
 
+            b = b.strip().replace('\r\n', '\n').replace('\r', '\n')
+
             self.version = Pckgd.calculate_version_hash(b)
             self.headers['Version'] = self.version
+
+
+    def add_dependencies(self):
+        if 'Requires' in self.headers:
+            dependencies = [d.strip() for d in self.headers['Requires'].split(',')]
+            for dep in dependencies:
+                if dep not in Pckgd.dependents:
+                    Pckgd.dependents[dep] = []
+                Pckgd.dependents[dep].append(self.filename_with_extension())
+
+
+    def dependents_list(self):
+        if self.filename_with_extension() in Pckgd.dependents:
+            return Pckgd.dependents[self.filename_with_extension()]
+        return []
+
+    def dependencies_list(self):
+        if 'Requires' in self.headers:
+            return [d.strip() for d in self.headers['Requires'].split(',')]
+        return []
+
+    def has_dependents(self):
+        deps = self.dependents_list()
+        return len(deps)
+
+    def has_dependencies(self):
+        return len(self.dependencies_list())
+
+    def dependencies_with_updates_available(self):
+        updates = []
+        for dep in self.dependencies_list():
+            dep_pkg = None
+            for p in Pckgd.find_installed_packages():
+                if p.filename_with_extension() == dep:
+                    dep_pkg = p
+                    break
+            if dep_pkg and dep_pkg.has_update_available():
+                updates.append((dep, dep_pkg.has_update_available()))
+        return updates
+
+    def get_repo_link(self):
+        if not 'Updates From' in self.headers:
+            return None
+
+        if self.headers['Updates From'].lower().startswith("github"):
+            path = self.headers['Updates From'].split('/', 3)
+            if len(path) == 4:  # some level of validation...
+                github_meta = Pckgd._get_github_repo_metadata(path[1] + "/" + path[2])
+
+                default_branch = "main"
+                if 'default_branch' in github_meta:
+                    default_branch = github_meta['default_branch']
+
+                return "https://github.com/{}/{}/blob/{}/{}".format(path[1], path[2], default_branch, path[3])
+        return None
+
+
+    def filename_with_extension(self):
+        if self.typeId == 5:
+            return self.filename + ".py"
+        elif self.typeId == 4:
+            return self.filename + ".sql"
+        else:
+            return self.filename
 
     """ Sets or updates a header for a given body. """
     @staticmethod
@@ -153,19 +242,13 @@ class Pckgd:
             return None
 
         if self.headers['Updates From'].lower().startswith("github"):
-            # TODO make this more efficient by caching default branch per repo and make use of other metadata, too.
             path = self.headers['Updates From'].split('/', 3)
             if len(path) == 4:  # some level of validation...
-
-                # query github api to get default branch
-                url = "https://api.github.com/repos/{}/{}".format(path[1], path[2])
-
-                response = model.RestGet(url, {"Accept": "application/vnd.github.v3+json"})
-                response = json.loads(response)
+                github_meta = Pckgd._get_github_repo_metadata(path[1] + "/" + path[2])
 
                 default_branch = "main"
-                if 'default_branch' in response:
-                    default_branch = response['default_branch']
+                if 'default_branch' in github_meta:
+                    default_branch = github_meta['default_branch']
 
                 return "https://raw.githubusercontent.com/{}/{}/refs/heads/{}/{}".format(path[1], path[2], default_branch, path[3])
 
@@ -173,16 +256,63 @@ class Pckgd:
 
     """ Checks if an update is available for this package. Note that this makes at least one, possibly more, HTTP requests. """
     def has_update_available(self):
-        update_source = self.get_update_source()
-        if not update_source:
-            return False
+        if self._has_update_available is None:
 
-        remote_content = model.RestGet(update_source, {})
-        if remote_content == "404: Not Found":  # How Github specifically handles these things.
-            raise Exception("Update source not found: {}".format(update_source))
+            update_source = self.get_update_source()
+            if not update_source:
+                self._has_update_available = False
+                return self._has_update_available
 
-        remote_pkg = Pckgd(self.typeId, self.filename, remote_content)
-        return remote_pkg.version != self.version
+            remote_content = model.RestGet(update_source, {})
+            if remote_content == "404: Not Found":  # How GitHub specifically handles these things.
+                self._has_update_available = False
+                raise Exception("Update source not found: {}".format(update_source))
+
+            remote_pkg = Pckgd(self.typeId, self.filename, remote_content)
+            if remote_pkg.version != self.version:
+                self._has_update_available = remote_pkg.version
+            else:
+                self._has_update_available = False
+        return self._has_update_available
+
+    _saved_meta = None
+
+    @staticmethod
+    def _get_saved_meta():
+        if Pckgd._saved_meta is None:
+            saved_meta = model.TextContent("PckgdCache.json")
+            if saved_meta.strip() == "":
+                Pckgd._saved_meta = {}
+            else:
+                Pckgd._saved_meta = json.loads(saved_meta)
+        return Pckgd._saved_meta
+
+    @staticmethod
+    def _get_github_repo_metadata(repo_path):
+        meta = Pckgd._get_saved_meta()
+
+        if not "github_repo_meta" in meta:
+            meta["github_repo_meta"] = {}
+
+        if not repo_path in meta["github_repo_meta"]:
+            meta["github_repo_meta"][repo_path] = {}
+
+        if '_expires' not in meta["github_repo_meta"][repo_path] or meta["github_repo_meta"][repo_path]['_expires'] < time.time():
+            # query GitHub api to get default branch and other such stuff
+            url = "https://api.github.com/repos/{}".format(repo_path)
+            response = model.RestGet(url, {"Accept": "application/vnd.github.v3+json"})
+            meta["github_repo_meta"][repo_path]['data'] = json.loads(response)
+            meta["github_repo_meta"][repo_path]['_expires'] = time.time() + 86400  # cache for 1 day
+            meta['_dirty'] = True
+
+        return meta["github_repo_meta"][repo_path]['data']
+
+    @staticmethod
+    def _save_meta_if_dirty():
+        meta = Pckgd._get_saved_meta()
+        if '_dirty' in meta and meta['_dirty']:
+            del meta['_dirty']
+            model.WriteContentText("PckgdCache.json", json.dumps(meta, indent=2))
 
 
 if model.HttpMethod == "get" and Data.v == "":
@@ -197,31 +327,55 @@ if model.HttpMethod == "get" and Data.v == "":
         print("<p>No packages are currently installed.<p />\n")
 
     for p in installed:
+        if p.has_dependents():
+            continue  # skip packages that have dependents; they will be shown with their parent package.
+
         print("<div class=\"package col-12 col-sm-6 col-md-4 col-lg-3\">\n")
         print("<div class=\"package-header\" style=\"{}\"></div>\n".format(p.get_header_style()))
 
         print("<div class=\"package-body\">\n")
-        name = p.headers['Name'] if 'Name' in p.headers else p.filename
+        name = p.headers['Title'] if 'Title' in p.headers else p.filename
         print("<h3>{}</h3>\n".format(name))
         if 'Description' in p.headers:
             print("<p>{}</p>\n".format(p.headers['Description']))
 
+        update = False
         try:
-            if p.has_update_available():
-                print("<p><strong>Update available!</strong></p>\n")
+            update = p.has_update_available()
         except Exception as e:
             print("<p><strong>Error checking for updates: {}</strong></p>\n".format(str(e)))
 
+        update_dep = False
+        try:
+            update_dep = p.dependencies_with_updates_available()
+        except Exception as e:
+            print("<p><strong>Error checking for dependency updates: {}</strong></p>\n".format(str(e)))
+
+        if update or update_dep:
+            print("<p><strong style=\"color:#600\">Update available.</strong></p>\n")
+
         pkg_caps = []
         if 'Author' in p.headers:
-            pkg_caps.append("by &nbsp;{}".format(p.headers['Author']))
+            pkg_caps.append("by&nbsp;{}".format(p.headers['Author']))
 
         if 'License' in p.headers:
             pkg_caps.append("<span title=\"License\">{}</span>".format(p.headers['License']))
 
         pkg_caps.append("Version:&nbsp;{}".format(p.headers['Version']))
 
+        if len(update_dep) > 0:
+            pkg_caps.append("<span style=\"color:#600\" title=\"{0} files are ready to be updated.\">&#x21bb;&nbsp;{0} Files</span>".format(1 * (not not update) + len(update_dep)))
+
+        elif update:
+            pkg_caps.append("<span style=\"color:#600\" title=\"New Version Available\">&#x21bb;&nbsp;{}</span>".format(update))
+
+        if p.has_dependencies() or p.has_dependents():
+            pkg_caps.append("<span title=\"{0} Dependents: files that depend on this file\">{0}</span>:<span title=\"{1} Dependencies: files on which this file depends\">{1}</span>".format(p.has_dependents(), p.has_dependencies()))
+
         print("<p class=\"package-caption\">{}</p>\n".format(" &bull; ".join(pkg_caps)))
+
+        print(p.get_action_buttons())
+
         print("</div>\n")
         print("</div>\n")
 
@@ -239,6 +393,10 @@ if model.HttpMethod == "get" and Data.v == "":
         border-width: 0 1px 1px;
         border-style: solid;
         border-color: #ccc;
+        height: 14em;
+        margin-bottom: 2em;
+        overflow-y: auto;
+        overflow-x: hidden;
     }
     div.package-body h3 {
         margin-top: 0;

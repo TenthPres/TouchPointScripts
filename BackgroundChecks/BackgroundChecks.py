@@ -1,9 +1,20 @@
 # noinspection PyUnresolvedReferences
+
+# Pckgd
+# Title: PA Background Checks
+# Description: Make Pennsylvania background checks just a little better.
+# Updates from: github/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks.py
+# Author: James at Tenth
+# Requires: BackgroundChecks-Status.sql
+
 from System import DateTime, String, Convert
 
 global model, Data
 
 mainQuery = model.SqlContent('BackgroundChecks-Status')
+
+
+
 userPerson = model.GetPerson(model.UserPeopleId)
 subjectPid = userPerson.PeopleId
 model.Header = "Background Checks"

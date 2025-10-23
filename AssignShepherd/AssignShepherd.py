@@ -1,3 +1,9 @@
+# Pckgd
+# Title: Assign Shepherd
+# Description: A module for assigning "shepherds" to families.
+# Updates from: github/TenthPres/TouchPointScripts/AssignShepherd/AssignShepherd.py
+# Author: James at Tenth
+
 # noinspection PyUnresolvedReferences
 import clr
 
