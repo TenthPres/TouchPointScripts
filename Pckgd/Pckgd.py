@@ -203,6 +203,7 @@ class Pckgd:
                     new_lines.append(line)
             elif Pckgd.do_not_edit_demarcation in line:
                 demarc_found = True # once we hit the demarcation, stop looking for headers
+                new_lines.append(line)
             else:
                 new_lines.append(line)
 
@@ -336,7 +337,7 @@ class Pckgd:
             preamble = self.body.split(Pckgd.do_not_edit_demarcation, 1)[0]
 
         # Assemble new body with old preamble.
-        if preamble is not None and Pckgd.do_not_edit_demarcation in new_pckg.body and self.headers['Editable'] == True:
+        if preamble is not None and Pckgd.do_not_edit_demarcation in new_pckg.body and new_pckg.headers['Editable'] == True:
             new_body = new_pckg.body.split(Pckgd.do_not_edit_demarcation, 1)[-1].strip()
 
         if preamble is not None:
