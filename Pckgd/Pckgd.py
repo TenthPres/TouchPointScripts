@@ -56,6 +56,7 @@ class Pckgd:
             if (self.typeId == 5 and line.strip().startswith('#')) or \
                     (self.typeId == 4 and line.strip().startswith('--')):
                 prefix_chars = 1 if self.typeId == 5 else 2
+                line = line.strip()
                 parts = line[prefix_chars:].split(':', 1)
                 if len(parts) == 2:
                     key = parts[0].strip()
@@ -91,8 +92,8 @@ class Pckgd:
 
         if self.has_update_available():
             buttons.append("""
-            <a href="PyScript/Pckgd?v=update&pkg={}" class="btn btn-primary">Update</a>
-            """.format(self.filename))
+            <a href="/PyScript/Pckgd?v=update&pkg={}" class="btn btn-primary">Update</a>
+            """.format(self.filename_with_extension()))
 
         return "\n".join(buttons)
 
@@ -195,6 +196,8 @@ class Pckgd:
                     new_lines.append(line)
             elif Pckgd.do_not_edit_demarcation in line:
                 demarc_found = True # once we hit the demarcation, stop looking for headers
+            else:
+                new_lines.append(line)
 
         if not header_found:  # Doesn't exist, so needs to be inserted.
             insert_index = 0
@@ -316,6 +319,38 @@ class Pckgd:
             del meta['_dirty']
             model.WriteContentText("PckgdCache.json", json.dumps(meta, indent=2))
 
+
+    def do_update(self, new_pckg):
+        # Update the content in the system
+        # If using demarcation, preserve anything above it (the "preamble").
+        preamble = None
+        new_body = new_pckg.body
+        if Pckgd.do_not_edit_demarcation in self.body:
+            preamble = self.body.split(Pckgd.do_not_edit_demarcation, 1)[0]
+
+        # Assemble new body with old preamble.
+        if preamble is not None and Pckgd.do_not_edit_demarcation in new_pckg.body:
+            new_body = new_pckg.body.split(Pckgd.do_not_edit_demarcation, 1)[-1].strip()
+
+        if preamble is not None:
+            new_body = preamble + '\n' + ('#' if self.typeId == 5 else '--') + Pckgd.do_not_edit_demarcation + new_pckg.body
+
+        v = new_pckg.version
+
+        self.body = new_body
+
+        if "Version" in self.headers or "Version" in new_pckg.headers:
+            new_body = Pckgd.set_header(new_pckg.body, 'Version', v, self.typeId)
+
+        if self.typeId == 5:
+            model.WriteContentPython(self.filename, new_body)
+        elif self.typeId == 4:
+            model.WriteContentSql(self.filename, new_body)
+
+        # TODO update dependencies, as well.
+
+
+
 def do_listing_view():
     model.Header = "Package Manager"
     model.Title = "Package Manager"
@@ -411,5 +446,83 @@ def do_listing_view():
           </style>
           """)
 
+def do_update_view():
+    model.Header = "Package Manager - Update Package"
+    model.Title = "Package Manager - Update Package"
+
+    pkg_name = Data.pkg
+    pkg = None
+    for p in Pckgd.find_installed_packages():
+        if p.filename_with_extension() == pkg_name:
+            pkg = p
+            break
+
+    if not pkg:
+        print("<p><strong>Package not found: {}</strong></p>\n".format(pkg_name))
+        return
+
+    print("<h2>Update Package: {}</h2>\n".format(pkg.name()))
+
+    update_source = pkg.get_update_source()
+    if not update_source:
+        print("<p><strong>No update source defined for this package.</strong></p>\n")
+        return
+
+    remote_content = model.RestGet(update_source, {})
+    if remote_content == "404: Not Found":
+        print("<p><strong>Update source not found: {}</strong></p>\n".format(update_source))
+        return
+
+    remote_pkg = Pckgd(pkg.typeId, pkg.filename, remote_content)
+
+    if remote_pkg.version == pkg.version:
+        print("<p><strong>This package is already up to date.</strong></p>\n")
+        return
+
+    # Perform the update
+    try:
+        pkg.do_update(remote_pkg)
+        print("<p><strong>Package updated successfully to version {}.</strong></p>\n".format(remote_pkg.version))
+    except Exception as e:
+        print("<p><strong>Error updating package: {}</strong></p>\n".format(str(e)))
+
+
 if model.HttpMethod == "get" and Data.v == "":
     do_listing_view()
+
+
+elif model.HttpMethod == "get" and Data.v == "update" and Data.pkg != "":
+    do_update_view()
+
+elif model.HttpMethod == "get" and Data.v == "test":
+    model.Header = "Package Manager - Test"
+    model.Title = "Package Manager - Test"
+
+    input = """
+    # Pckgd
+    # Title: Sample Package
+    # Description: A sample package for testing.
+    # Updates from: GitHub/ExampleUser/ExampleRepo/SamplePackage.py
+    
+    somevar = 123
+    
+    # this is preamble that should be preserved. 
+    
+    # ==============
+    
+    # This is content that should be changed.
+    
+    """
+
+    p = Pckgd(5, "SamplePackage", input)
+    print("<h2>Package: {}</h2>\n".format(p.name()))
+    print("<pre>{}</pre>\n".format(json.dumps(p.headers, indent=2)))
+    print("<p>Version: {}</p>\n".format(p.version))
+
+    new_input = Pckgd.set_header(input, "Version", "1.2.3", 5)
+
+    p2 = Pckgd(5, "SamplePackage", new_input)
+    print("<h2>Updated Package: {}</h2>\n".format(p2.name()))
+    print("<pre>{}</pre>\n".format(json.dumps(p2.headers, indent=2)))
+    print("<p>Version: {}</p>\n".format(p2.version))
+
