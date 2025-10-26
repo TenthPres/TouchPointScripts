@@ -17,26 +17,29 @@ be located in the first 100 lines of the script, and must be located immediately
 demarcation is used (explained below), the headers must be *above* the demarcation. 
 The headers are:
 
-- `# Pckgd` - Required as the first of these headers.  No value.  Identifies the file as part of a Pckgd package, and 
+- `# Pckgd` Required as the first of these headers.  No value.  Identifies the file as part of a Pckgd package, and 
     indicates where these headers are in the file. Without this header, the script won't be found in the query for 
     packages, and the headers won't be found in the file.
-- `# Updates from:` - Required for updates. An identifier of where updates should come from.  Two types of values are allowed:
+- `# Updates from:` Required for updates. An identifier of where updates should come from.  Two types of values are allowed:
     - A URL to a text file: e.g. `# Updates from: https://example.com/mypackage-latest.txt`
     - A GitHub repository in the format `GitHub/username/repo/path/to/file.py`: e.g. `# Updates from: GitHub/TenthPres/TouchPointScripts/Pckgd/Pckgd.py`
-- `# Title:` - Optional, but recommended. The human-readable name of the package.  This is the name shown in the UI. 
-- `# Description:` - Optional, but recommended. A brief description of what the package does.
-- `# Depends on:` - Optional.  A comma-separated list of other Pckgd scripts (with extensions) that this script depends 
+- `# Title:` Optional, but recommended. The human-readable name of the package.  This is the name shown in the UI. 
+- `# Description:` Optional, but recommended. A brief description of what the package does.
+- `# Depends on:` Optional.  A comma-separated list of other Pckgd scripts (with extensions) that this script depends 
 on. For example, if a python script depends on a SQL file, this header might be something like `# Depends on: MyScript.sql`.  
 When dependencies are defined, they will be provided as part of installation, provided they are available in the same 
 source and directory as the current file. 
-- `# Version:` - Optional.  The current version of the script.  Must contain hex characters and dots only (e.g. `1.0.0`, `2.1`, `2024.06.15`, `adcf1234`).
+- `# Version:` Optional.  The current version of the script.  Must contain hex characters and dots only (e.g. `1.0.0`, `2.1`, `2024.06.15`, `adcf1234`).
   - If not provided, a hash will be generated on a per-file basis to determine if a new version is available.  
   - If a version is provided in the source file (e.g. on GitHub), only the version numbers will be compared, not the content of the script.  Therefore, if you use this parameter, to make clients see a new update as being available, you *must* change the version number on the repository.
   - If you want every new update published on your repository to be treated as a new version, leave this header out. 
-- `# License:` - Optional.  The license under which the package is provided.
-- `# Author:` - Optional.  The author of the package.
-- `# Header color:` - Optional.  A hex color code (e.g. `#FF0000`) to use as the header color in the UI.  If one is not provided, a color is generated from a hash of the file name. 
-- `# Header image:` - Optional.  A URL to an image to use as the header image in the UI.
+- `# License:` Optional.  The license under which the package is provided.
+- `# Author:` Optional.  The author of the package.
+- `# Header color:` Optional.  A hex color code (e.g. `#FF0000`) to use as the header color in the UI.  If one is not provided, a color is generated from a hash of the file name. 
+- `# Header image:` Optional.  A URL to an image to use as the header image in the UI.
+- `# Editable:` Optional, True or False.  If your script contains the "stop editing" demarcation (explained below), 
+    *for other purposes*, you can set this to `False` to prevent confusion about whether the script is editable. Default
+    is `True`.
 
 ### Examples
 

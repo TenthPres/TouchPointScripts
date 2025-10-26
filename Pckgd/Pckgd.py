@@ -2,9 +2,10 @@
 # Title: Pckgd, A Package Manager
 # Description: A module for managing packages and their updates.
 # Updates from: GitHub/TenthPres/TouchPointScripts/Pckgd/Pckgd.py
-# Version: 0.0.5
+# Version: 0.0.6
 # License: AGPL-3.0
 # Author: James at Tenth
+# Editable: False
 
 # Do not make edits to this file.  They will be overwritten during updates.
 
@@ -70,6 +71,12 @@ class Pckgd:
                         self.headers[key] = value
             elif Pckgd.do_not_edit_demarcation in line:
                 break
+
+        if 'Editable' in self.headers and self.headers['Editable'].lower() in ['false', '0', 'no', 'off']:
+            self.headers['Editable'] = False
+        else:
+            self.headers['Editable'] = True
+
         return
 
     def get_action_buttons(self):
@@ -325,11 +332,11 @@ class Pckgd:
         # If using demarcation, preserve anything above it (the "preamble").
         preamble = None
         new_body = new_pckg.body
-        if Pckgd.do_not_edit_demarcation in self.body:
+        if Pckgd.do_not_edit_demarcation in self.body and self.headers['Editable'] == True:
             preamble = self.body.split(Pckgd.do_not_edit_demarcation, 1)[0]
 
         # Assemble new body with old preamble.
-        if preamble is not None and Pckgd.do_not_edit_demarcation in new_pckg.body:
+        if preamble is not None and Pckgd.do_not_edit_demarcation in new_pckg.body and self.headers['Editable'] == True:
             new_body = new_pckg.body.split(Pckgd.do_not_edit_demarcation, 1)[-1].strip()
 
         if preamble is not None:
