@@ -31,3 +31,4 @@ jobs:
             .Builds/Mapify.zip
             .Builds/TuitionAutomation.zip
             .Builds/NonweeklyMeetings.zip
+            .Builds/Pckgd.zip
