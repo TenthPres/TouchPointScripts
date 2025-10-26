@@ -18,6 +18,11 @@ function buildEverything(cb) {
 		.pipe(zip('NonweeklyMeetings.zip'))
 		.pipe(gulp.dest('.Builds'));
 
+    // Pckgd Installer
+    gulp.src(['Pckgd/*.py', "Pckgd/keyword"])
+        .pipe(zip('Pckgd.zip'))
+        .pipe(gulp.dest('.Builds'));
+
 	cb();
 }
 
