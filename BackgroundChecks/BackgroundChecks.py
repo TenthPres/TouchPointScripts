@@ -3,7 +3,7 @@
 # Pckgd
 # Title: PA Background Checks
 # Description: Make Pennsylvania background checks just a little better.
-# Updates from: github/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks.py
+# Updates from: GitHub/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks.py
 # Author: James at Tenth
 # Requires: BackgroundChecks-Status.sql
 

@@ -1,8 +1,8 @@
 # Pckgd
 # Title: Pckgd, A Package Manager
 # Description: A module for managing packages and their updates.
-# Updates from: github/TenthPres/TouchPointScripts/Pckgd/Pckgd.py
-# Version: 0.0.3
+# Updates from: GitHub/TenthPres/TouchPointScripts/Pckgd/Pckgd.py
+# Version: 0.0.4
 # License: AGPL-3.0
 # Author: James at Tenth
 
@@ -30,6 +30,7 @@ class Pckgd:
 
     do_not_edit_demarcation = "========="
     dependents = {}
+    _saved_meta = None
 
     @staticmethod
     def find_installed_packages():
@@ -254,6 +255,9 @@ class Pckgd:
 
         return None
 
+    def name(self):
+        return self.headers['Title'] if 'Title' in self.headers else model.SpaceCamelCase(self.filename)
+
     """ Checks if an update is available for this package. Note that this makes at least one, possibly more, HTTP requests. """
     def has_update_available(self):
         if self._has_update_available is None:
@@ -275,8 +279,6 @@ class Pckgd:
                 self._has_update_available = False
         return self._has_update_available
 
-    _saved_meta = None
-
     @staticmethod
     def _get_saved_meta():
         if Pckgd._saved_meta is None:
@@ -288,7 +290,7 @@ class Pckgd:
         return Pckgd._saved_meta
 
     @staticmethod
-    def _get_github_repo_metadata(repo_path):
+    def _get_github_repo_metadata(repo_path, bypass_cache=False):
         meta = Pckgd._get_saved_meta()
 
         if not "github_repo_meta" in meta:
@@ -297,7 +299,7 @@ class Pckgd:
         if not repo_path in meta["github_repo_meta"]:
             meta["github_repo_meta"][repo_path] = {}
 
-        if '_expires' not in meta["github_repo_meta"][repo_path] or meta["github_repo_meta"][repo_path]['_expires'] < time.time():
+        if '_expires' not in meta["github_repo_meta"][repo_path] or meta["github_repo_meta"][repo_path]['_expires'] < time.time() or bypass_cache:
             # query GitHub api to get default branch and other such stuff
             url = "https://api.github.com/repos/{}".format(repo_path)
             response = model.RestGet(url, {"Accept": "application/vnd.github.v3+json"})
@@ -314,8 +316,7 @@ class Pckgd:
             del meta['_dirty']
             model.WriteContentText("PckgdCache.json", json.dumps(meta, indent=2))
 
-
-if model.HttpMethod == "get" and Data.v == "":
+def do_listing_view():
     model.Header = "Package Manager"
     model.Title = "Package Manager"
 
@@ -326,6 +327,9 @@ if model.HttpMethod == "get" and Data.v == "":
     if (not installed) or (len(installed) == 0):
         print("<p>No packages are currently installed.<p />\n")
 
+    # sort by name
+    installed.sort(key=lambda p: p.name().lower())
+
     for p in installed:
         if p.has_dependents():
             continue  # skip packages that have dependents; they will be shown with their parent package.
@@ -334,8 +338,7 @@ if model.HttpMethod == "get" and Data.v == "":
         print("<div class=\"package-header\" style=\"{}\"></div>\n".format(p.get_header_style()))
 
         print("<div class=\"package-body\">\n")
-        name = p.headers['Title'] if 'Title' in p.headers else p.filename
-        print("<h3>{}</h3>\n".format(name))
+        print("<h3>{}</h3>\n".format(p.name()))
         if 'Description' in p.headers:
             print("<p>{}</p>\n".format(p.headers['Description']))
 
@@ -383,27 +386,30 @@ if model.HttpMethod == "get" and Data.v == "":
 
     # language=html
     print("""
-    <style>
-    .package-header {
-        width: 100%;
-        padding-top: 25%;
-    }
-    .package-body {
-        padding: 10px;
-        border-width: 0 1px 1px;
-        border-style: solid;
-        border-color: #ccc;
-        height: 14em;
-        margin-bottom: 2em;
-        overflow-y: auto;
-        overflow-x: hidden;
-    }
-    div.package-body h3 {
-        margin-top: 0;
-    }
-    p.package-caption {
-        font-size: 0.75em;
-        opacity: 0.7;
-    }
-    </style>
-    """)
+          <style>
+              .package-header {
+                  width: 100%;
+                  padding-top: 25%;
+              }
+              .package-body {
+                  padding: 10px;
+                  border-width: 0 1px 1px;
+                  border-style: solid;
+                  border-color: #ccc;
+                  height: 14em;
+                  margin-bottom: 2em;
+                  overflow-y: auto;
+                  overflow-x: hidden;
+              }
+              div.package-body h3 {
+                  margin-top: 0;
+              }
+              p.package-caption {
+                  font-size: 0.75em;
+                  opacity: 0.7;
+              }
+          </style>
+          """)
+
+if model.HttpMethod == "get" and Data.v == "":
+    do_listing_view()

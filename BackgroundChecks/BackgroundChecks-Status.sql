@@ -1,5 +1,5 @@
 -- Pckgd
--- Updates from: github/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks-Status.sql
+-- Updates from: GitHub/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks-Status.sql
 
 DECLARE @delinquentDate DATE;
 SET @delinquentDate = (SELECT CAST(GETDATE() - 10 AS DATE));

@@ -3,7 +3,7 @@
 # Pckgd
 # Title: Calendar
 # Description: Provides month, week, day, and reservables calendar views.
-# Updates from: github/TenthPres/TouchPointScripts/Calendar/Calendar.py
+# Updates from: GitHub/TenthPres/TouchPointScripts/Calendar/Calendar.py
 # License: AGPL-3.0
 # Author: James at Tenth
 

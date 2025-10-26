@@ -1,7 +1,7 @@
 # Pckgd
 # Title: Pelican HVAC Integration
 # Description: Room Reservations controlling Pelican HVAC thermostats.
-# Updates from: github/TenthPres/TouchPointScripts/Calendar/IntegrationPelican.py
+# Updates from: GitHub/TenthPres/TouchPointScripts/Calendar/IntegrationPelican.py
 # Author: James at Tenth
 
 
