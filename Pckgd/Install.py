@@ -7,9 +7,9 @@ if '''model.CallScript("Pckgd")''' not in batchContent and '''model.CallScript('
     batchContent = batchContent + '''\n\nData.pckgdCaller = "MorningBatch"\nmodel.CallScript("Pckgd")'''
     model.WriteContentPython("MorningBatch", batchContent)
 
-scheduledTasks = model.TextContent('ScheduledTasks')
+batchContent = model.TextContent('ScheduledTasks')
 if '''model.CallScript("Pckgd")''' not in batchContent and '''model.CallScript('Pckgd')''' not in batchContent:
     batchContent = batchContent + '''\n\nData.pckgdCaller = "ScheduledTasks"\nmodel.CallScript("Pckgd")'''
     model.WriteContentPython("ScheduledTasks", batchContent)
 
-print("REDIRECT=/PyScript/Pckgd?c=installed")
+print("REDIRECT=/PyScript/Pckgd?c=installed")  # This generally doesn't work, but we can dream.
