@@ -268,10 +268,15 @@ def generate_list_html(start_date, day_count, with_setups = False):
         }
 
         .event {
-            margin: .5em 0; 
+            margin: 1em 0; 
             padding: .5em;
             border: solid 2px #def; 
             border-radius: 3px;
+            break-inside: avoid;
+        }
+
+        .day-events {
+            break-after: page;
         }
         
         .rooms {
