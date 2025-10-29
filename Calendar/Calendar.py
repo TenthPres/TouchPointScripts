@@ -262,11 +262,6 @@ def generate_list_html(start_date, day_count, with_setups = False):
     # language=HTML
     html.append("""
     <style>
-        .feat {
-            font-size: 1.3em;
-            font-weight: bold;
-        }
-
         .event {
             margin: 1em 0; 
             padding: .5em;
