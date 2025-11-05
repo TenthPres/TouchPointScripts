@@ -29,7 +29,7 @@ class Pckgd:
     def __del__(self):
         Pckgd._save_meta_if_dirty()
 
-    do_not_edit_demarcation = "========="
+    do_not_edit_demarcation = "PCKGD_MANAGED_SECTION"
     dependents = {}
     _saved_meta = None
 
@@ -99,7 +99,7 @@ class Pckgd:
 
         if self.has_update_available():
             buttons.append("""
-            <a href="/PyScript/Pckgd?v=update&pkg={}" class="btn btn-primary">Update</a>
+            <a href="/PyScript/Pckgd?v=update&pkg={}&show_diff=true" class="btn btn-primary">Update</a>
             """.format(self.filename_with_extension()))
 
         return "\n".join(buttons)
@@ -167,11 +167,11 @@ class Pckgd:
         if self.headers['Updates From'].lower().startswith("github"):
             path = self.headers['Updates From'].split('/', 3)
             if len(path) == 4:  # some level of validation...
-                github_meta = Pckgd._get_github_repo_metadata(path[1] + "/" + path[2])
+                source_meta = Pckgd._get_source_repo_metadata(path[1] + "/" + path[2])
 
                 default_branch = "main"
-                if 'default_branch' in github_meta:
-                    default_branch = github_meta['default_branch']
+                if 'default_branch' in source_meta:
+                    default_branch = source_meta['default_branch']
 
                 return "https://github.com/{}/{}/blob/{}/{}".format(path[1], path[2], default_branch, path[3])
         return None
@@ -256,11 +256,11 @@ class Pckgd:
         if self.headers['Updates From'].lower().startswith("github"):
             path = self.headers['Updates From'].split('/', 3)
             if len(path) == 4:  # some level of validation...
-                github_meta = Pckgd._get_github_repo_metadata(path[1] + "/" + path[2])
+                source_meta = Pckgd._get_source_repo_metadata(path[1] + "/" + path[2])
 
                 default_branch = "main"
-                if 'default_branch' in github_meta:
-                    default_branch = github_meta['default_branch']
+                if 'default_branch' in source_meta:
+                    default_branch = source_meta['default_branch']
 
                 return "https://raw.githubusercontent.com/{}/{}/refs/heads/{}/{}".format(path[1], path[2], default_branch, path[3])
 
@@ -279,7 +279,7 @@ class Pckgd:
                 return self._has_update_available
 
             remote_content = model.RestGet(update_source, {})
-            if remote_content == "404: Not Found":  # How GitHub specifically handles these things.
+            if remote_content == "404: Not Found":  # How source repositories (e.g., GitHub) handle 404s
                 self._has_update_available = False
                 raise Exception("Update source not found: {}".format(update_source))
 
@@ -301,24 +301,25 @@ class Pckgd:
         return Pckgd._saved_meta
 
     @staticmethod
-    def _get_github_repo_metadata(repo_path, bypass_cache=False):
+    def _get_source_repo_metadata(repo_path, bypass_cache=False):
+        """Get metadata for a source repository (e.g., GitHub)"""
         meta = Pckgd._get_saved_meta()
 
-        if not "github_repo_meta" in meta:
-            meta["github_repo_meta"] = {}
+        if not "source_repo_meta" in meta:
+            meta["source_repo_meta"] = {}
 
-        if not repo_path in meta["github_repo_meta"]:
-            meta["github_repo_meta"][repo_path] = {}
+        if not repo_path in meta["source_repo_meta"]:
+            meta["source_repo_meta"][repo_path] = {}
 
-        if '_expires' not in meta["github_repo_meta"][repo_path] or meta["github_repo_meta"][repo_path]['_expires'] < time.time() or bypass_cache:
-            # query GitHub api to get default branch and other such stuff
+        if '_expires' not in meta["source_repo_meta"][repo_path] or meta["source_repo_meta"][repo_path]['_expires'] < time.time() or bypass_cache:
+            # Query GitHub API to get default branch and other metadata
             url = "https://api.github.com/repos/{}".format(repo_path)
             response = model.RestGet(url, {"Accept": "application/vnd.github.v3+json"})
-            meta["github_repo_meta"][repo_path]['data'] = json.loads(response)
-            meta["github_repo_meta"][repo_path]['_expires'] = time.time() + 86400  # cache for 1 day
+            meta["source_repo_meta"][repo_path]['data'] = json.loads(response)
+            meta["source_repo_meta"][repo_path]['_expires'] = time.time() + 86400  # cache for 1 day
             meta['_dirty'] = True
 
-        return meta["github_repo_meta"][repo_path]['data']
+        return meta["source_repo_meta"][repo_path]['data']
 
     @staticmethod
     def _save_meta_if_dirty():
@@ -329,160 +330,601 @@ class Pckgd:
 
 
     @staticmethod
-    def _merge_variables(local_preamble, github_preamble, type_id):
+    def _merge_variables(local_preamble, source_preamble, type_id):
         """
-        Intelligently merge variable sections:
-        - Keep user's customized values
-        - Add new variables from GitHub
-        - Preserve user's custom variables not in GitHub
-        - Preserve comments and structure from GitHub
-        - Handle multi-line assignments (lists, dicts, strings)
+        Intelligently merge variable sections using difflib:
+        - Uses three-way merge logic
+        - Detects what changed between local and source
+        - Automatically resolves non-conflicting changes
+        - Preserves user customizations
+        - Adds new variables from source
         """
+        import difflib
         import re
 
         comment_char = '#' if type_id == 5 else '--'
 
-        # Enhanced pattern: handles simple assignments including multi-line
-        var_pattern = r'^(\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$'
+        # Helper to separate headers from variables
+        def split_headers_and_vars(preamble):
+            """Split preamble into headers and configuration variables"""
+            lines = preamble.split('\n')
+            headers = []
+            config = []
+            in_config = False
+            var_pattern = r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$'
 
-        local_vars = {}
-        github_vars = {}
-        local_lines = []
-        github_lines = []
+            for line in lines:
+                stripped = line.strip()
 
-        # Track multi-line assignments
-        current_var = None
-        current_lines = []
+                # Check if we're entering the config section
+                if not in_config and 'CONFIGURATION' in line and line.strip().startswith(comment_char):
+                    # This is the config section header
+                    in_config = True
+                    config.append(line)
+                    continue
 
-        # Parse local preamble
-        for line in local_preamble.split('\n'):
-            match = re.match(var_pattern, line)
-            if match:
-                # Save previous multi-line var if any
-                if current_var and current_lines:
-                    local_vars[current_var] = '\n'.join(current_lines)
+                # Check if this line is a variable assignment (actual code, not comment)
+                is_variable = False
+                if stripped and not stripped.startswith(comment_char):
+                    # Check if it matches variable pattern
+                    if re.match(var_pattern, stripped):
+                        is_variable = True
+                        in_config = True
 
-                var_name = match.group(2)
-                current_var = var_name
-                current_lines = [line]
-
-                # Check if this might be multi-line (unclosed brackets/quotes)
-                value = match.group(3).strip()
-                if value.count('(') > value.count(')') or \
-                   value.count('[') > value.count(']') or \
-                   value.count('{') > value.count('}') or \
-                   (value.count('"') % 2 == 1) or \
-                   (value.count("'") % 2 == 1 and not value.endswith("'")):
-                    # Multi-line, keep accumulating
-                    pass
+                if is_variable or in_config:
+                    # We're in or starting the config section
+                    config.append(line)
                 else:
-                    # Single line, save it
-                    local_vars[var_name] = line
-                    local_lines.append(('var', var_name, line))
-                    current_var = None
-                    current_lines = []
-            elif current_var:
-                # Continuation of multi-line assignment
-                current_lines.append(line)
-                # Check if closing
-                if ')' in line or ']' in line or '}' in line or '"' in line or "'" in line:
-                    local_vars[current_var] = '\n'.join(current_lines)
-                    local_lines.append(('var', current_var, '\n'.join(current_lines)))
-                    current_var = None
-                    current_lines = []
-            else:
-                local_lines.append(('other', None, line))
+                    # Still in headers
+                    headers.append(line)
 
-        # Save any remaining multi-line var
-        if current_var and current_lines:
-            local_vars[current_var] = '\n'.join(current_lines)
-            local_lines.append(('var', current_var, '\n'.join(current_lines)))
+            return '\n'.join(headers), '\n'.join(config)
 
-        # Parse GitHub preamble (same logic)
-        current_var = None
-        current_lines = []
+        # Parse variable assignments (simple but robust)
+        def parse_variables(code):
+            """Extract variable assignments as {var_name: full_assignment_text}"""
+            var_pattern = r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$'
+            variables = {}
+            lines = code.split('\n')
+            current_var = None
+            current_lines = []
 
-        for line in github_preamble.split('\n'):
-            match = re.match(var_pattern, line)
-            if match:
-                if current_var and current_lines:
-                    github_vars[current_var] = '\n'.join(current_lines)
+            for line in lines:
+                stripped = line.strip()
 
-                var_name = match.group(2)
-                current_var = var_name
-                current_lines = [line]
+                # Skip empty lines and comments
+                if not stripped or stripped.startswith(comment_char):
+                    # If we were tracking a multi-line, this ends it
+                    if current_var:
+                        variables[current_var] = '\n'.join(current_lines)
+                        current_var = None
+                        current_lines = []
+                    continue
 
-                value = match.group(3).strip()
-                if value.count('(') > value.count(')') or \
-                   value.count('[') > value.count(']') or \
-                   value.count('{') > value.count('}') or \
-                   (value.count('"') % 2 == 1) or \
-                   (value.count("'") % 2 == 1 and not value.endswith("'")):
-                    pass
+                # Check if this is a variable assignment
+                match = re.match(var_pattern, stripped)
+                if match:
+                    # Save previous variable if any
+                    if current_var:
+                        variables[current_var] = '\n'.join(current_lines)
+
+                    current_var = match.group(1)
+                    current_lines = [line]
+
+                    # Check for unclosed brackets/parens (multi-line)
+                    value = match.group(2)
+                    open_count = value.count('(') + value.count('[') + value.count('{')
+                    close_count = value.count(')') + value.count(']') + value.count('}')
+
+                    if open_count == close_count and not value.endswith('\\'):
+                        # Single line assignment
+                        variables[current_var] = line
+                        current_var = None
+                        current_lines = []
+                elif current_var:
+                    # Continuation of multi-line assignment
+                    current_lines.append(line)
+
+                    # Check if we're closing the assignment
+                    if ')' in line or ']' in line or '}' in line:
+                        # Count brackets to see if balanced
+                        full_text = '\n'.join(current_lines)
+                        open_count = full_text.count('(') + full_text.count('[') + full_text.count('{')
+                        close_count = full_text.count(')') + full_text.count(']') + full_text.count('}')
+
+                        if open_count == close_count:
+                            variables[current_var] = full_text
+                            current_var = None
+                            current_lines = []
+
+            # Save last variable if any
+            if current_var:
+                variables[current_var] = '\n'.join(current_lines)
+
+            return variables
+
+        def get_structure(code):
+            """Get code structure preserving comments and order"""
+            lines = code.split('\n')
+            structure = []
+            var_pattern = r'^([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$'
+            in_var = None
+
+            for line in lines:
+                stripped = line.strip()
+
+                # Check if this is a variable assignment (not a comment)
+                match = re.match(var_pattern, stripped) if stripped and not stripped.startswith(comment_char) else None
+
+                if match:
+                    if in_var:
+                        structure.append(('var_end', in_var))
+                    in_var = match.group(1)
+                    structure.append(('var_start', in_var, line))
+                elif in_var and stripped and not stripped.startswith(comment_char):
+                    # Continuation of multi-line assignment
+                    structure.append(('var_continue', in_var, line))
+                    if ')' in line or ']' in line or '}' in line:
+                        # Might be end of multi-line
+                        in_var = None
                 else:
-                    github_vars[var_name] = line
-                    github_lines.append(('var', var_name, line))
+                    # Comments, blank lines, etc.
+                    if in_var:
+                        structure.append(('var_end', in_var))
+                        in_var = None
+                    structure.append(('text', None, line))
+
+            return structure
+
+        # Separate headers from configuration variables
+        local_headers, local_config = split_headers_and_vars(local_preamble)
+        source_headers, source_config = split_headers_and_vars(source_preamble)
+
+        # If local has config section but source doesn't, we need to be smarter
+        # Source might have variables but not the CONFIGURATION header yet
+        if local_config and not source_config:
+            # Check if source has any variables at all
+            source_has_vars = False
+            for line in source_preamble.split('\n'):
+                stripped = line.strip()
+                if stripped and not stripped.startswith(comment_char):
+                    import re
+                    if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\s*=', stripped):
+                        source_has_vars = True
+                        break
+
+            if source_has_vars:
+                # Source has variables but no CONFIGURATION section
+                # Split source differently - everything after Editable is config
+                lines = source_preamble.split('\n')
+                header_lines = []
+                config_lines = []
+                found_editable = False
+
+                for line in lines:
+                    if 'Editable:' in line:
+                        header_lines.append(line)
+                        found_editable = True
+                    elif found_editable:
+                        config_lines.append(line)
+                    else:
+                        header_lines.append(line)
+
+                source_headers = '\n'.join(header_lines)
+                source_config = '\n'.join(config_lines)
+
+        # DEBUG: Log the configs before parsing
+        try:
+            model.DebugPrint("=== CONFIG SECTIONS ===")
+            model.DebugPrint("Local config length: " + str(len(local_config)))
+            model.DebugPrint("Source config length: " + str(len(source_config)))
+            model.DebugPrint("Local config first 500 chars:\n" + local_config[:500])
+            model.DebugPrint("Source config first 500 chars:\n" + source_config[:500])
+        except Exception as ex:
+            model.DebugPrint("DEBUG ERROR: " + str(ex))
+
+        # Parse only the configuration sections
+        local_vars = parse_variables(local_config)
+        source_vars = parse_variables(source_config)
+
+        # DEBUG: Log what we parsed
+        try:
+            model.DebugPrint("=== MERGE DEBUG ===")
+            model.DebugPrint("Local vars: " + str(local_vars.keys()))
+            model.DebugPrint("Source vars: " + str(source_vars.keys()))
+            if 'AZURE_ACCOUNT_KEY' in local_vars:
+                model.DebugPrint("Local AZURE_ACCOUNT_KEY: " + local_vars['AZURE_ACCOUNT_KEY'][:50])
+            if 'AZURE_ACCOUNT_KEY' in source_vars:
+                model.DebugPrint("Source AZURE_ACCOUNT_KEY: " + source_vars['AZURE_ACCOUNT_KEY'][:50])
+        except Exception as ex:
+            model.DebugPrint("DEBUG ERROR: " + str(ex))
+
+        # Compute differences using difflib
+        local_var_names = set(local_vars.keys())
+        source_var_names = set(source_vars.keys())
+
+        # Variables only in local (user added)
+        local_only = local_var_names - source_var_names
+
+        # Variables only in source (new from update)
+        source_only = source_var_names - local_var_names
+
+        # Variables in both (potential conflicts or unchanged)
+        both = local_var_names & source_var_names
+
+        # Check for conflicts (both changed same variable)
+        conflicts = []
+        for var in both:
+            if local_vars[var] != source_vars[var]:
+                # Variable exists in both but values differ
+                # This is where user customized it - keep user's version
+                conflicts.append(var)
+
+        # Build merged result
+        merged_lines = []
+        processed = set()
+
+        # Start with source headers (updated version, etc.)
+        if source_headers:
+            merged_lines.append(source_headers)
+
+        # Add a blank line between headers and config
+        if source_headers and (local_config or source_config):
+            merged_lines.append('')
+
+        # Use local config structure to preserve comments and formatting
+        # This includes the # ========== CONFIGURATION ========== header
+        if local_config:
+            local_structure = get_structure(local_config)
+            current_var_lines = []
+            current_var = None
+
+            # Track the closing marker position (# =========)
+            closing_marker_index = None
+            temp_merged_lines = []
+
+            for idx, item in enumerate(local_structure):
+                if item[0] == 'var_start':
+                    var_name = item[1]
+                    current_var = var_name
+                    current_var_lines = []
+
+                    # Always use local version if it exists
+                    if var_name in local_vars:
+                        temp_merged_lines.append(local_vars[var_name])
+                        processed.add(var_name)
+                        current_var = None
+                    else:
+                        # Shouldn't happen since we're iterating local structure
+                        current_var_lines.append(item[2])
+                elif item[0] == 'var_continue' and current_var:
+                    current_var_lines.append(item[2])
+                elif item[0] == 'var_end' or (item[0] == 'text' and current_var):
+                    if current_var and current_var_lines:
+                        temp_merged_lines.append('\n'.join(current_var_lines))
+                        processed.add(current_var)
                     current_var = None
-                    current_lines = []
-            elif current_var:
-                current_lines.append(line)
-                if ')' in line or ']' in line or '}' in line or '"' in line or "'" in line:
-                    github_vars[current_var] = '\n'.join(current_lines)
-                    github_lines.append(('var', current_var, '\n'.join(current_lines)))
-                    current_var = None
-                    current_lines = []
-            else:
-                github_lines.append(('other', None, line))
+                    current_var_lines = []
 
-        if current_var and current_lines:
-            github_vars[current_var] = '\n'.join(current_lines)
-            github_lines.append(('var', current_var, '\n'.join(current_lines)))
-
-        # Build merged preamble
-        merged = []
-        processed_vars = set()
-
-        # First pass: preserve structure from GitHub, but use local values where they exist
-        for line_type, var_name, line in github_lines:
-            if line_type == 'var':
-                if var_name in local_vars:
-                    # Use local customized value
-                    merged.append(local_vars[var_name])
+                    if item[0] == 'text':
+                        # Check if this is the closing marker line
+                        line = item[2]
+                        if line.strip().startswith(comment_char) and '========' in line and len(line.strip()) < 20:
+                            closing_marker_index = len(temp_merged_lines)
+                        # Preserve comments and blank lines from local
+                        temp_merged_lines.append(line)
                 else:
-                    # New variable from GitHub - use default
-                    merged.append(line)
-                processed_vars.add(var_name)
+                    # Preserve all text (comments, blank lines, etc.) from local
+                    line = item[2]
+                    if line.strip().startswith(comment_char) and '========' in line and len(line.strip()) < 20:
+                        closing_marker_index = len(temp_merged_lines)
+                    temp_merged_lines.append(line)
+
+            # Add remaining current var if any
+            if current_var and current_var_lines:
+                temp_merged_lines.append('\n'.join(current_var_lines))
+                processed.add(current_var)
+
+            # Add new variables from source - insert before closing marker if found
+            source_only_vars = source_var_names - local_var_names
+            if source_only_vars:
+                new_var_lines = []
+                for var in sorted(source_only_vars):
+                    new_var_lines.append(source_vars[var])
+
+                # Insert new variables before the closing marker, or at the end
+                if closing_marker_index is not None:
+                    # Insert before closing marker
+                    merged_lines.extend(temp_merged_lines[:closing_marker_index])
+                    merged_lines.append('')  # Blank line before new vars
+                    merged_lines.extend(new_var_lines)
+                    merged_lines.extend(temp_merged_lines[closing_marker_index:])
+                else:
+                    # No closing marker, add at end
+                    merged_lines.extend(temp_merged_lines)
+                    merged_lines.append('')
+                    merged_lines.extend(new_var_lines)
             else:
-                # Comments, blank lines, etc. - preserve from GitHub
-                merged.append(line)
+                # No new variables, use temp lines as-is
+                merged_lines.extend(temp_merged_lines)
+        elif source_config:
+            # No local config exists, use source config entirely
+            merged_lines.append(source_config)
 
-        # Second pass: add any local-only variables (not in GitHub) at the end
-        local_only_vars = []
-        for var_name, line in local_vars.items():
-            if var_name not in processed_vars:
-                local_only_vars.append(line)
+        # Add user-only variables at the end
+        if local_only:
+            merged_lines.append('')
+            merged_lines.append('{} User-added variables (not in source):'.format(comment_char))
+            for var in sorted(local_only):
+                merged_lines.append(local_vars[var])
 
-        if local_only_vars:
-            # Add a comment and the local-only variables
-            merged.append('')
-            merged.append('{} User-added variables (not in template):'.format(comment_char))
-            merged.extend(local_only_vars)
+        result = '\n'.join(merged_lines)
 
-        return '\n'.join(merged)
+        # DEBUG: Log the result
+        try:
+            model.DebugPrint("=== MERGE RESULT ===")
+            model.DebugPrint("Result length: " + str(len(result)))
+            model.DebugPrint("First 500 chars: " + result[:500])
+        except:
+            pass
 
-    def do_update(self, new_pckg):
-        # Update the content in the system
-        # If using demarcation, preserve anything above it (the "preamble").
+        return result
+
+    @staticmethod
+    def generate_diff_html(local_text, source_text, context_lines=3):
+        """Generate side-by-side HTML diff view using difflib"""
+        import difflib
+
+        local_lines = local_text.splitlines()
+        source_lines = source_text.splitlines()
+
+        # Use SequenceMatcher for side-by-side comparison
+        matcher = difflib.SequenceMatcher(None, local_lines, source_lines)
+
+        html_lines = ['<div class="diff-view">']
+        html_lines.append('<table class="diff-table">')
+        html_lines.append('<thead><tr>')
+        html_lines.append('<th class="line-num">Line</th>')
+        html_lines.append('<th class="diff-column">Your Current Version</th>')
+        html_lines.append('<th class="line-num">Line</th>')
+        html_lines.append('<th class="diff-column">After Update</th>')
+        html_lines.append('</tr></thead>')
+        html_lines.append('<tbody>')
+
+        local_line_num = 1
+        source_line_num = 1
+
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == 'equal':
+                # Show context lines - if context_lines is large enough, show everything
+                num_equal_lines = i2 - i1
+
+                if context_lines >= num_equal_lines or context_lines >= 50:
+                    # Show all equal lines (for config sections or when context is large)
+                    for i in range(i1, i2):
+                        j = j1 + (i - i1)
+                        html_lines.append('<tr class="diff-unchanged">')
+                        html_lines.append('<td class="line-num">{}</td>'.format(local_line_num))
+                        html_lines.append('<td class="diff-line">{}</td>'.format(
+                            local_lines[i].replace('<', '&lt;').replace('>', '&gt;')
+                        ))
+                        html_lines.append('<td class="line-num">{}</td>'.format(source_line_num))
+                        html_lines.append('<td class="diff-line">{}</td>'.format(
+                            source_lines[j].replace('<', '&lt;').replace('>', '&gt;')
+                        ))
+                        html_lines.append('</tr>')
+                        local_line_num += 1
+                        source_line_num += 1
+                else:
+                    # Show limited context with ellipsis for large unchanged sections
+                    # Show first few lines
+                    for i in range(i1, min(i1 + context_lines, i2)):
+                        j = j1 + (i - i1)
+                        html_lines.append('<tr class="diff-unchanged">')
+                        html_lines.append('<td class="line-num">{}</td>'.format(local_line_num))
+                        html_lines.append('<td class="diff-line">{}</td>'.format(
+                            local_lines[i].replace('<', '&lt;').replace('>', '&gt;')
+                        ))
+                        html_lines.append('<td class="line-num">{}</td>'.format(source_line_num))
+                        html_lines.append('<td class="diff-line">{}</td>'.format(
+                            source_lines[j].replace('<', '&lt;').replace('>', '&gt;')
+                        ))
+                        html_lines.append('</tr>')
+                        local_line_num += 1
+                        source_line_num += 1
+
+                    # Show ellipsis if we skipped lines
+                    if i2 - i1 > context_lines * 2:
+                        lines_skipped = (i2 - i1) - (context_lines * 2)
+                        html_lines.append('<tr class="diff-ellipsis">')
+                        html_lines.append('<td class="line-num">...</td>')
+                        html_lines.append('<td class="diff-line"><em>({} unchanged lines)</em></td>'.format(lines_skipped))
+                        html_lines.append('<td class="line-num">...</td>')
+                        html_lines.append('<td class="diff-line"><em>({} unchanged lines)</em></td>'.format(lines_skipped))
+                        html_lines.append('</tr>')
+
+                        # Update line numbers for skipped section
+                        local_line_num += lines_skipped
+                        source_line_num += lines_skipped
+
+                        # Show last few lines
+                        for i in range(max(i2 - context_lines, i1 + context_lines), i2):
+                            j = j1 + (i - i1)
+                            html_lines.append('<tr class="diff-unchanged">')
+                            html_lines.append('<td class="line-num">{}</td>'.format(local_line_num))
+                            html_lines.append('<td class="diff-line">{}</td>'.format(
+                                local_lines[i].replace('<', '&lt;').replace('>', '&gt;')
+                            ))
+                            html_lines.append('<td class="line-num">{}</td>'.format(source_line_num))
+                            html_lines.append('<td class="diff-line">{}</td>'.format(
+                                source_lines[j].replace('<', '&lt;').replace('>', '&gt;')
+                            ))
+                            html_lines.append('</tr>')
+                            local_line_num += 1
+                            source_line_num += 1
+
+            elif tag == 'delete':
+                # Lines only in local (will be removed)
+                for i in range(i1, i2):
+                    html_lines.append('<tr class="diff-delete">')
+                    html_lines.append('<td class="line-num">{}</td>'.format(local_line_num))
+                    html_lines.append('<td class="diff-line diff-removed">{}</td>'.format(
+                        local_lines[i].replace('<', '&lt;').replace('>', '&gt;')
+                    ))
+                    html_lines.append('<td class="line-num"></td>')
+                    html_lines.append('<td class="diff-line"></td>')
+                    html_lines.append('</tr>')
+                    local_line_num += 1
+
+            elif tag == 'insert':
+                # Lines only in source (will be added)
+                for j in range(j1, j2):
+                    html_lines.append('<tr class="diff-insert">')
+                    html_lines.append('<td class="line-num"></td>')
+                    html_lines.append('<td class="diff-line"></td>')
+                    html_lines.append('<td class="line-num">{}</td>'.format(source_line_num))
+                    html_lines.append('<td class="diff-line diff-added">{}</td>'.format(
+                        source_lines[j].replace('<', '&lt;').replace('>', '&gt;')
+                    ))
+                    html_lines.append('</tr>')
+                    source_line_num += 1
+
+            elif tag == 'replace':
+                # Lines changed between versions
+                max_lines = max(i2 - i1, j2 - j1)
+                for k in range(max_lines):
+                    i = i1 + k
+                    j = j1 + k
+                    html_lines.append('<tr class="diff-replace">')
+
+                    if i < i2:
+                        html_lines.append('<td class="line-num">{}</td>'.format(local_line_num))
+                        html_lines.append('<td class="diff-line diff-changed">{}</td>'.format(
+                            local_lines[i].replace('<', '&lt;').replace('>', '&gt;')
+                        ))
+                        local_line_num += 1
+                    else:
+                        html_lines.append('<td class="line-num"></td>')
+                        html_lines.append('<td class="diff-line"></td>')
+
+                    if j < j2:
+                        html_lines.append('<td class="line-num">{}</td>'.format(source_line_num))
+                        html_lines.append('<td class="diff-line diff-changed">{}</td>'.format(
+                            source_lines[j].replace('<', '&lt;').replace('>', '&gt;')
+                        ))
+                        source_line_num += 1
+                    else:
+                        html_lines.append('<td class="line-num"></td>')
+                        html_lines.append('<td class="diff-line"></td>')
+
+                    html_lines.append('</tr>')
+
+        html_lines.append('</tbody>')
+        html_lines.append('</table>')
+        html_lines.append('</div>')
+
+        # Add CSS for side-by-side view
+        html_lines.append('''
+        <style>
+            .diff-view {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                margin: 10px 0;
+                background: #fff;
+                overflow-x: auto;
+            }
+            .diff-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-family: 'Courier New', monospace;
+                font-size: 12px;
+                line-height: 1.4;
+            }
+            .diff-table thead {
+                background: #f5f5f5;
+                border-bottom: 2px solid #ddd;
+            }
+            .diff-table th {
+                padding: 8px;
+                text-align: left;
+                font-weight: bold;
+                border-right: 1px solid #ddd;
+            }
+            .diff-table th.line-num {
+                width: 50px;
+                text-align: right;
+                background: #fafafa;
+            }
+            .diff-table th.diff-column {
+                width: 45%;
+            }
+            .diff-table td {
+                padding: 2px 8px;
+                border-right: 1px solid #eee;
+                vertical-align: top;
+            }
+            .line-num {
+                color: #999;
+                text-align: right;
+                background: #fafafa;
+                user-select: none;
+                min-width: 40px;
+            }
+            .diff-line {
+                white-space: pre;
+                overflow-x: auto;
+            }
+            .diff-unchanged td {
+                background: #fff;
+            }
+            .diff-delete td {
+                background: #fff0f0;
+            }
+            .diff-insert td {
+                background: #f0fff0;
+            }
+            .diff-replace td {
+                background: #fffef0;
+            }
+            .diff-ellipsis td {
+                background: #f9f9f9;
+                color: #999;
+                text-align: center;
+                font-style: italic;
+                padding: 8px;
+            }
+            .diff-removed {
+                background: #ffcccc !important;
+                color: #c00;
+            }
+            .diff-added {
+                background: #ccffcc !important;
+                color: #080;
+            }
+            .diff-changed {
+                background: #ffffcc !important;
+                color: #880;
+            }
+        </style>
+        ''')
+
+        return '\n'.join(html_lines)
+
+    def generate_merged_body(self, new_pckg):
+        """Generate the merged body without saving it (for preview)"""
         preamble = None
         demarcation_line = None
         new_body = new_pckg.body
 
         if Pckgd.do_not_edit_demarcation in self.body and self.headers['Editable'] == True:
-            # Find the actual demarcation line to preserve it exactly
+            # Find the demarcation line that marks end of editable section
+            comment_char = '#' if self.typeId == 5 else '--'
+
             for line in self.body.split('\n'):
-                if Pckgd.do_not_edit_demarcation in line:
+                # Look for comment line containing our unique marker
+                if Pckgd.do_not_edit_demarcation in line and line.strip().startswith(comment_char):
                     demarcation_line = line
-                    # Split on the full line, not just the pattern
+                    # Split on the full line
                     parts = self.body.split(line, 1)
                     if len(parts) > 0:
                         preamble = parts[0].rstrip('\n')
@@ -490,30 +932,31 @@ class Pckgd:
 
         # Assemble new body with old preamble.
         if preamble is not None and Pckgd.do_not_edit_demarcation in new_pckg.body and new_pckg.headers['Editable'] == True:
-            # Find GitHub's demarcation line
-            github_demarcation_line = None
-            github_preamble = None
+            # Find source's demarcation line
+            source_demarcation_line = None
+            source_preamble = None
             new_body_content = None
 
             for line in new_pckg.body.split('\n'):
-                if Pckgd.do_not_edit_demarcation in line:
-                    github_demarcation_line = line
+                # Look for comment line containing our unique marker
+                if Pckgd.do_not_edit_demarcation in line and line.strip().startswith(comment_char):
+                    source_demarcation_line = line
                     # Split on the full line
                     parts = new_pckg.body.split(line, 1)
                     if len(parts) > 0:
-                        github_preamble = parts[0].rstrip('\n')
+                        source_preamble = parts[0].rstrip('\n')
                     if len(parts) > 1:
                         new_body_content = parts[1].lstrip('\n')
                     break
 
-            # Use GitHub's demarcation line if we don't have one
-            if not demarcation_line and github_demarcation_line:
-                demarcation_line = github_demarcation_line
+            # Use source's demarcation line if we don't have one
+            if not demarcation_line and source_demarcation_line:
+                demarcation_line = source_demarcation_line
 
             # Merge variable sections intelligently
-            if github_preamble:
+            if source_preamble:
                 try:
-                    merged_preamble = Pckgd._merge_variables(preamble, github_preamble, self.typeId)
+                    merged_preamble = Pckgd._merge_variables(preamble, source_preamble, self.typeId)
                 except Exception as e:
                     # If merge fails, fall back to preserving local preamble
                     model.DebugPrint("Warning: Variable merge failed for {0}: {1}".format(self.filename, str(e)))
@@ -528,18 +971,24 @@ class Pckgd:
                 # Fallback if parsing failed
                 new_body = merged_preamble + '\n' + ('#' if self.typeId == 5 else '--') + ' ' + Pckgd.do_not_edit_demarcation + '\n' + new_pckg.body
         elif preamble is not None:
-            # GitHub doesn't have demarcation but local does - preserve local preamble
+            # Source doesn't have demarcation but local does - preserve local preamble
             if demarcation_line:
                 new_body = preamble + '\n' + demarcation_line + '\n' + new_pckg.body
             else:
                 new_body = preamble + '\n' + ('#' if self.typeId == 5 else '--') + ' ' + Pckgd.do_not_edit_demarcation + '\n' + new_pckg.body
 
+        # Update version header
         v = new_pckg.version
-
-        self.body = new_body
-
         if "Version" in self.headers or "Version" in new_pckg.headers:
             new_body = Pckgd.set_header(new_body, 'Version', v, self.typeId)
+
+        return new_body
+
+    def do_update(self, new_pckg):
+        """Apply the update and save to database"""
+        new_body = self.generate_merged_body(new_pckg)
+
+        self.body = new_body
 
         if self.typeId == 5:
             model.WriteContentPython(self.filename, new_body)
@@ -650,6 +1099,9 @@ def do_update_view():
     model.Title = "Package Manager - Update Package"
 
     pkg_name = Data.pkg
+    show_diff = hasattr(Data, 'show_diff') and Data.show_diff == 'true'
+    confirm = hasattr(Data, 'confirm') and Data.confirm == 'true'
+
     pkg = None
     for p in Pckgd.find_installed_packages():
         if p.filename_with_extension() == pkg_name:
@@ -678,12 +1130,62 @@ def do_update_view():
         print("<p><strong>This package is already up to date.</strong></p>\n")
         return
 
-    # Perform the update
-    try:
-        pkg.do_update(remote_pkg)
-        print("<p><strong>Package updated successfully to version {}.</strong></p>\n".format(remote_pkg.version))
-    except Exception as e:
-        print("<p><strong>Error updating package: {}</strong></p>\n".format(str(e)))
+    # Show diff if requested
+    if show_diff:
+        print("<h3>Update Preview</h3>")
+        print("<p>Current version: <strong>{}</strong> &rarr; New version: <strong>{}</strong></p>".format(
+            pkg.version, remote_pkg.version
+        ))
+
+        # Action buttons at top
+        print('<p style="margin: 15px 0;">')
+        print('<a href="/PyScript/Pckgd?v=update&pkg={}&confirm=true" class="btn btn-primary">Confirm Update</a> '.format(pkg_name))
+        print('<a href="/PyScript/Pckgd" class="btn btn-default">Cancel</a>')
+        print('</p>')
+
+        # Generate the merged result (what will actually be saved)
+        merged_body = pkg.generate_merged_body(remote_pkg)
+
+        # Show diff of configuration section if it exists
+        if Pckgd.do_not_edit_demarcation in pkg.body:
+            local_preamble = pkg.body.split(Pckgd.do_not_edit_demarcation)[0]
+            if Pckgd.do_not_edit_demarcation in merged_body:
+                merged_preamble = merged_body.split(Pckgd.do_not_edit_demarcation)[0]
+
+                print("<h4>Configuration Changes:</h4>")
+                print("<p><em>Your custom values will be preserved. New settings will be added if available.</em></p>")
+                # Use large context to show all configuration lines
+                print(Pckgd.generate_diff_html(local_preamble, merged_preamble, context_lines=1000))
+
+        # Show full file diff in collapsible section
+        print('<details style="margin-top: 20px;">')
+        print('<summary style="cursor: pointer; font-size: 16px; font-weight: bold; padding: 10px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px;">')
+        print('📄 Complete File Changes (click to expand)')
+        print('</summary>')
+        print('<div style="margin-top: 10px;">')
+        print("<p><em>This shows all changes including code updates:</em></p>")
+        # Use moderate context with ellipsis for very long unchanged sections
+        print(Pckgd.generate_diff_html(pkg.body, merged_body, context_lines=5))
+        print('</div>')
+        print('</details>')
+        return
+
+    # Perform the update if confirmed
+    if confirm or not show_diff:
+        try:
+            pkg.do_update(remote_pkg)
+            print("<p><strong>Package updated successfully to version {}.</strong></p>\n".format(remote_pkg.version))
+            print('<p><a href="/PyScript/Pckgd" class="btn btn-default">Back to Package Manager</a></p>')
+        except Exception as e:
+            print("<p><strong>Error updating package: {}</strong></p>\n".format(str(e)))
+    else:
+        # Default: show preview option
+        print("<p>An update is available. Version <strong>{}</strong> &rarr; <strong>{}</strong></p>".format(
+            pkg.version, remote_pkg.version
+        ))
+        print('<p><a href="/PyScript/Pckgd?v=update&pkg={}&show_diff=true" class="btn btn-info">Preview Changes</a>'.format(pkg_name))
+        print('<a href="/PyScript/Pckgd?v=update&pkg={}&confirm=true" class="btn btn-primary">Update Now</a>'.format(pkg_name))
+        print('<a href="/PyScript/Pckgd" class="btn btn-default">Cancel</a></p>')
 
 
 if model.HttpMethod == "get" and Data.v == "":
@@ -692,6 +1194,3 @@ if model.HttpMethod == "get" and Data.v == "":
 
 elif model.HttpMethod == "get" and Data.v == "update" and Data.pkg != "":
     do_update_view()
-
-
-
