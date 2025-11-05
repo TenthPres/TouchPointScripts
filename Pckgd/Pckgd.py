@@ -328,27 +328,218 @@ class Pckgd:
             model.WriteContentText("PckgdCache.json", json.dumps(meta, indent=2))
 
 
+    @staticmethod
+    def _merge_variables(local_preamble, github_preamble, type_id):
+        """
+        Intelligently merge variable sections:
+        - Keep user's customized values
+        - Add new variables from GitHub
+        - Preserve user's custom variables not in GitHub
+        - Preserve comments and structure from GitHub
+        - Handle multi-line assignments (lists, dicts, strings)
+        """
+        import re
+
+        comment_char = '#' if type_id == 5 else '--'
+
+        # Enhanced pattern: handles simple assignments including multi-line
+        var_pattern = r'^(\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$'
+
+        local_vars = {}
+        github_vars = {}
+        local_lines = []
+        github_lines = []
+
+        # Track multi-line assignments
+        current_var = None
+        current_lines = []
+
+        # Parse local preamble
+        for line in local_preamble.split('\n'):
+            match = re.match(var_pattern, line)
+            if match:
+                # Save previous multi-line var if any
+                if current_var and current_lines:
+                    local_vars[current_var] = '\n'.join(current_lines)
+
+                var_name = match.group(2)
+                current_var = var_name
+                current_lines = [line]
+
+                # Check if this might be multi-line (unclosed brackets/quotes)
+                value = match.group(3).strip()
+                if value.count('(') > value.count(')') or \
+                   value.count('[') > value.count(']') or \
+                   value.count('{') > value.count('}') or \
+                   (value.count('"') % 2 == 1) or \
+                   (value.count("'") % 2 == 1 and not value.endswith("'")):
+                    # Multi-line, keep accumulating
+                    pass
+                else:
+                    # Single line, save it
+                    local_vars[var_name] = line
+                    local_lines.append(('var', var_name, line))
+                    current_var = None
+                    current_lines = []
+            elif current_var:
+                # Continuation of multi-line assignment
+                current_lines.append(line)
+                # Check if closing
+                if ')' in line or ']' in line or '}' in line or '"' in line or "'" in line:
+                    local_vars[current_var] = '\n'.join(current_lines)
+                    local_lines.append(('var', current_var, '\n'.join(current_lines)))
+                    current_var = None
+                    current_lines = []
+            else:
+                local_lines.append(('other', None, line))
+
+        # Save any remaining multi-line var
+        if current_var and current_lines:
+            local_vars[current_var] = '\n'.join(current_lines)
+            local_lines.append(('var', current_var, '\n'.join(current_lines)))
+
+        # Parse GitHub preamble (same logic)
+        current_var = None
+        current_lines = []
+
+        for line in github_preamble.split('\n'):
+            match = re.match(var_pattern, line)
+            if match:
+                if current_var and current_lines:
+                    github_vars[current_var] = '\n'.join(current_lines)
+
+                var_name = match.group(2)
+                current_var = var_name
+                current_lines = [line]
+
+                value = match.group(3).strip()
+                if value.count('(') > value.count(')') or \
+                   value.count('[') > value.count(']') or \
+                   value.count('{') > value.count('}') or \
+                   (value.count('"') % 2 == 1) or \
+                   (value.count("'") % 2 == 1 and not value.endswith("'")):
+                    pass
+                else:
+                    github_vars[var_name] = line
+                    github_lines.append(('var', var_name, line))
+                    current_var = None
+                    current_lines = []
+            elif current_var:
+                current_lines.append(line)
+                if ')' in line or ']' in line or '}' in line or '"' in line or "'" in line:
+                    github_vars[current_var] = '\n'.join(current_lines)
+                    github_lines.append(('var', current_var, '\n'.join(current_lines)))
+                    current_var = None
+                    current_lines = []
+            else:
+                github_lines.append(('other', None, line))
+
+        if current_var and current_lines:
+            github_vars[current_var] = '\n'.join(current_lines)
+            github_lines.append(('var', current_var, '\n'.join(current_lines)))
+
+        # Build merged preamble
+        merged = []
+        processed_vars = set()
+
+        # First pass: preserve structure from GitHub, but use local values where they exist
+        for line_type, var_name, line in github_lines:
+            if line_type == 'var':
+                if var_name in local_vars:
+                    # Use local customized value
+                    merged.append(local_vars[var_name])
+                else:
+                    # New variable from GitHub - use default
+                    merged.append(line)
+                processed_vars.add(var_name)
+            else:
+                # Comments, blank lines, etc. - preserve from GitHub
+                merged.append(line)
+
+        # Second pass: add any local-only variables (not in GitHub) at the end
+        local_only_vars = []
+        for var_name, line in local_vars.items():
+            if var_name not in processed_vars:
+                local_only_vars.append(line)
+
+        if local_only_vars:
+            # Add a comment and the local-only variables
+            merged.append('')
+            merged.append('{} User-added variables (not in template):'.format(comment_char))
+            merged.extend(local_only_vars)
+
+        return '\n'.join(merged)
+
     def do_update(self, new_pckg):
         # Update the content in the system
         # If using demarcation, preserve anything above it (the "preamble").
         preamble = None
+        demarcation_line = None
         new_body = new_pckg.body
+
         if Pckgd.do_not_edit_demarcation in self.body and self.headers['Editable'] == True:
-            preamble = self.body.split(Pckgd.do_not_edit_demarcation, 1)[0]
+            # Find the actual demarcation line to preserve it exactly
+            for line in self.body.split('\n'):
+                if Pckgd.do_not_edit_demarcation in line:
+                    demarcation_line = line
+                    # Split on the full line, not just the pattern
+                    parts = self.body.split(line, 1)
+                    if len(parts) > 0:
+                        preamble = parts[0].rstrip('\n')
+                    break
 
         # Assemble new body with old preamble.
         if preamble is not None and Pckgd.do_not_edit_demarcation in new_pckg.body and new_pckg.headers['Editable'] == True:
-            new_body = new_pckg.body.split(Pckgd.do_not_edit_demarcation, 1)[-1].strip()
+            # Find GitHub's demarcation line
+            github_demarcation_line = None
+            github_preamble = None
+            new_body_content = None
 
-        if preamble is not None:
-            new_body = preamble + '\n' + ('#' if self.typeId == 5 else '--') + Pckgd.do_not_edit_demarcation + new_pckg.body
+            for line in new_pckg.body.split('\n'):
+                if Pckgd.do_not_edit_demarcation in line:
+                    github_demarcation_line = line
+                    # Split on the full line
+                    parts = new_pckg.body.split(line, 1)
+                    if len(parts) > 0:
+                        github_preamble = parts[0].rstrip('\n')
+                    if len(parts) > 1:
+                        new_body_content = parts[1].lstrip('\n')
+                    break
+
+            # Use GitHub's demarcation line if we don't have one
+            if not demarcation_line and github_demarcation_line:
+                demarcation_line = github_demarcation_line
+
+            # Merge variable sections intelligently
+            if github_preamble:
+                try:
+                    merged_preamble = Pckgd._merge_variables(preamble, github_preamble, self.typeId)
+                except Exception as e:
+                    # If merge fails, fall back to preserving local preamble
+                    model.DebugPrint("Warning: Variable merge failed for {0}: {1}".format(self.filename, str(e)))
+                    merged_preamble = preamble
+            else:
+                merged_preamble = preamble
+
+            # Assemble final body with preserved demarcation line
+            if demarcation_line and new_body_content is not None:
+                new_body = merged_preamble + '\n' + demarcation_line + '\n' + new_body_content
+            else:
+                # Fallback if parsing failed
+                new_body = merged_preamble + '\n' + ('#' if self.typeId == 5 else '--') + ' ' + Pckgd.do_not_edit_demarcation + '\n' + new_pckg.body
+        elif preamble is not None:
+            # GitHub doesn't have demarcation but local does - preserve local preamble
+            if demarcation_line:
+                new_body = preamble + '\n' + demarcation_line + '\n' + new_pckg.body
+            else:
+                new_body = preamble + '\n' + ('#' if self.typeId == 5 else '--') + ' ' + Pckgd.do_not_edit_demarcation + '\n' + new_pckg.body
 
         v = new_pckg.version
 
         self.body = new_body
 
         if "Version" in self.headers or "Version" in new_pckg.headers:
-            new_body = Pckgd.set_header(new_pckg.body, 'Version', v, self.typeId)
+            new_body = Pckgd.set_header(new_body, 'Version', v, self.typeId)
 
         if self.typeId == 5:
             model.WriteContentPython(self.filename, new_body)
