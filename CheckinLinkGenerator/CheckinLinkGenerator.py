@@ -88,7 +88,7 @@ function LinkGenModel(){
         } else {
             let credentials = model.user() + ":" + model.pass();
             let encodedCreds = btoa(credentials);
-            url += "cred=" + encodeURIComponent(encodedCreds);
+            url += "id=" + encodeURIComponent(encodedCreds);
         }
         return url;
     });
