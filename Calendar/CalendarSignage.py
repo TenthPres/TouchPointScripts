@@ -56,6 +56,31 @@ def get_reservables(typ):
     ;
 """.format(typ))
 
+_config = None
+
+def get_config(asJson = False):
+    global _config
+    
+    if _config is None:
+    
+        # noinspection PyBroadException
+        try:
+            _config = model.Content("CalendarSignageConfiguration.json")
+        except:
+            print("<p>Caution: could not load existing configuration, starting fresh.</p>")
+            _config = None
+    
+        if _config is None or _config.strip() == "":
+            _config = "[]"
+    
+    if asJson:
+        return _config
+        
+    import json
+        
+    return json.loads(_config)
+
+
 if model.HttpMethod == "post" and Data.v == "saveSigns":
     # save signage configuration
     import json
@@ -74,19 +99,10 @@ if model.HttpMethod == "post" and Data.v == "saveSigns":
 elif Data.v == "":
     # configuration mode
 
-    # import knockout from cdn
     # language=html
     model.Title = "Calendar Signage Configuration"
 
-    # noinspection PyBroadException
-    try:
-        originalConfig = model.Content("CalendarSignageConfiguration.json")
-    except:
-        print("<p>Caution: could not load existing configuration, starting fresh.</p>")
-        originalConfig = None
-
-    if originalConfig is None or originalConfig.strip() == "":
-        originalConfig = "[]"
+    originalConfig = get_config()
 
     ko_form = """
     <script>
@@ -98,6 +114,7 @@ elif Data.v == "":
     # language=html
     ko_form = ko_form + """
               <script src="https://cdnjs.cloudflare.com/ajax/libs/knockout/3.5.0/knockout-min.js"></script>
+
 
               <table style="border-collapse: collapse; width: 100%;" data-bind="visible: signs().length > 0">
                   <thead>
@@ -115,7 +132,7 @@ elif Data.v == "":
                       <td><select
                               data-bind="options: $parent.types, optionsText: 'name', optionsValue: 'fileName', value: type">
                       </td>
-                      <td><input type="number" data-bind="value: copies" min="0"/></td>
+                      <td><input type="number" data-bind="value: copies" min="0" max="999" /></td>
                       <td><a data-bind="text: items().length, click: $parent.editSign"></a></td>
                       <td>
                           <a data-bind="attr: { href: previewLink }" title="Preview" class="fa fa-eye"></a>
@@ -124,7 +141,7 @@ elif Data.v == "":
                   </tr>
                   </tbody>
               </table>
-              <a data-bind="click: addSign" class="fa fa-add" title="Add Sign"></a>
+              <a data-bind="click: addSign" class="fa fa-plus" title="Add Sign"></a>
 
 
               <div class="modal" id="edit-sign-dialog" data-keyboard="false" data-backdrop="static" style="background: #0009;">
@@ -176,6 +193,8 @@ elif Data.v == "":
                           return "?v=" + that.id();
                       });
                       
+                      
+                      this.copies.subscribe((newValue) => {if (newValue < 0) {this.copies(0)}})
                       this.copies.subscribe(() => window.signageViewModel.saveSigns());
                       this.name.subscribe(() => window.signageViewModel.saveSigns());
                       this.type.subscribe(() => window.signageViewModel.saveSigns());
@@ -272,8 +291,7 @@ elif Data.v == "":
               """
 
     print(ko_form)
-
-
+    
     # print("<p>Select Items to print signage for</p>")
     # print("<table>")
     # for i in [(1, "Rooms"), (2, "Jawns"), (3, "Other Jawns")]:
@@ -297,4 +315,15 @@ elif Data.v == "":
     #
     #             print("</tr>")
     # print("</table>")
+    
+
+# a view, presumably
+else:
+    reports = (Data.v or "").split(",")
+    
+    for r in reports:
+        pass
+
+
+
 #
