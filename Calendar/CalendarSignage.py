@@ -1,3 +1,11 @@
+
+
+# Pckgd
+# Title: Calendar Signage
+# Description: Print signage for rooms and events from configured templates
+# Updates from: GitHub/TenthPres/TouchPointScripts/Calendar/CalendarSignage.py
+# Author: James at Tenth
+
 global q, model, Data
 
 def get_reservations_for_room(reservableIds, startDate, days):
@@ -110,13 +118,13 @@ elif Data.v == "":
                       <td><input type="number" data-bind="value: copies" min="0"/></td>
                       <td><a data-bind="text: items().length, click: $parent.editSign"></a></td>
                       <td>
-                          <a data-bind="attr: { href: previewLink }">Preview</a>
-                          <a data-bind="click: $parent.removeSign">Remove</a>
+                          <a data-bind="attr: { href: previewLink }" title="Preview" class="fa fa-eye"></a>
+                          <a data-bind="click: $parent.removeSign" title="Remove" class="fa fa-trash"></a>
                       </td>
                   </tr>
                   </tbody>
               </table>
-              <button data-bind="click: addSign">Add Sign</button>
+              <a data-bind="click: addSign" class="fa fa-add" title="Add Sign"></a>
 
 
               <div class="modal" id="edit-sign-dialog" data-keyboard="false" data-backdrop="static" style="background: #0009;">
@@ -129,7 +137,7 @@ elif Data.v == "":
                           <div class="modal-body">
                               <div class="form-group">
                                   <label for="OrganizationName" class="control-label">Name</label>
-                                  <input class="form-control" id="org_OrganizationName" name="org.OrganizationName" type="text" value="">
+                                  <input class="form-control" type="text" data-bind="value: currentlyEditingSign().name" />
                               </div>
                               <div class="form-group">
                                   <label for="InvolvementType" class="control-label">Involvement Type</label>
