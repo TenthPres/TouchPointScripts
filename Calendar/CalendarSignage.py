@@ -56,6 +56,31 @@ def get_reservables(typ):
     ;
 """.format(typ))
 
+_config = None
+
+def get_config(asJson = False):
+    global _config
+
+    if _config is None:
+
+        # noinspection PyBroadException
+        try:
+            _config = model.Content("CalendarSignageConfiguration.json")
+        except:
+            print("<p>Caution: could not load existing configuration, starting fresh.</p>")
+            _config = None
+
+        if _config is None or _config.strip() == "":
+            _config = "[]"
+
+    if asJson:
+        return _config
+
+    import json
+
+    return json.loads(_config)
+
+
 if model.HttpMethod == "post" and Data.v == "saveSigns":
     # save signage configuration
     import json
@@ -74,19 +99,10 @@ if model.HttpMethod == "post" and Data.v == "saveSigns":
 elif Data.v == "":
     # configuration mode
 
-    # import knockout from cdn
     # language=html
     model.Title = "Calendar Signage Configuration"
 
-    # noinspection PyBroadException
-    try:
-        originalConfig = model.Content("CalendarSignageConfiguration.json")
-    except:
-        print("<p>Caution: could not load existing configuration, starting fresh.</p>")
-        originalConfig = None
-
-    if originalConfig is None or originalConfig.strip() == "":
-        originalConfig = "[]"
+    originalConfig = get_config()
 
     ko_form = """
     <script>
@@ -118,13 +134,13 @@ elif Data.v == "":
                       <td><input type="number" data-bind="value: copies" min="0"/></td>
                       <td><a data-bind="text: items().length, click: $parent.editSign"></a></td>
                       <td>
-                          <a data-bind="attr: { href: previewLink }">Preview</a>
-                          <a data-bind="click: $parent.removeSign">Remove</a>
+                          <a data-bind="attr: { href: previewLink }" class="fa fa-eye btn btn-primary" title="Preview"></a>
+                          <a data-bind="click: $parent.removeSign" class="fa fa-trash btn btn-primary" title="Remove"></a>
                       </td>
                   </tr>
                   </tbody>
               </table>
-              <button data-bind="click: addSign">Add Sign</button>
+              <a data-bind="click: addSign" class="fa fa-plus btn btn-primary" title="Add Report"></a>
 
 
               <div class="modal" id="edit-sign-dialog" data-keyboard="false" data-backdrop="static" style="background: #0009;">
@@ -161,117 +177,118 @@ elif Data.v == "":
                   </div>
               </div>
               
-              
-              
-              
-              <script>
-                  function Sign(data) {
-                      const that = this;
-                      this.name = ko.observable(data.name);
-                      this.items = ko.observableArray(data.items || []);
-                      this.copies = ko.observable(data.copies || 1);
-                      this.type = ko.observable(data.type || "CalendarSignageDirectional");
-                      this.id = ko.observable(data.id || btoa(Math.random().toString()).substring(0, 6));
-                      this.previewLink = ko.computed(function () {
-                          return "?v=" + that.id();
-                      });
-                      
-                      
-                      this.copies.subscribe((newValue) => {if (newValue < 0) {this.copies(0)}})
-                      this.copies.subscribe(() => window.signageViewModel.saveSigns());
-                      this.name.subscribe(() => window.signageViewModel.saveSigns());
-                      this.type.subscribe(() => window.signageViewModel.saveSigns());
-                      this.items.subscribe(() => window.signageViewModel.saveSigns());
-                      
-                      this.toJson = function () {
-                            return {
-                                name: that.name(),
-                                items: that.items(),
-                                copies: that.copies(),
-                                type: that.type(),
-                                id: that.id()
-                            };
-                      };
-                  }
+<script>
+    function Sign(data) {
+        const that = this;
+        this.name = ko.observable(data.name);
+        this.items = ko.observableArray(data.items || []);
+        this.copies = ko.observable(data.copies || 1);
+        this.type = ko.observable(data.type || "CalendarSignageDirectional");
+        this.id = ko.observable(data.id || btoa(Math.random().toString()).substring(0, 6));
+        this.previewLink = ko.computed(function () {
+            return "?v=" + that.id();
+        });
 
-                  function ViewModel(data) {
-                      const self = this;
-                      self.signs = ko.observableArray([]);
-                      
-                      data.forEach(function (signData) {
-                          self.signs.push(new Sign(signData));
-                      });
 
-                      self.types = ko.observableArray([
-                          {name: "Directional", fileName: "CalendarSignageDirectional"},
-                          {name: "Reservations", fileName: "CalendarSignageReservations"},
-                          {name: "Event Details", fileName: "CalendarSignageEventDetails"}
-                      ]);
-                      
-                      self.currentlyEditingSign = ko.observable(null);
+        this.copies.subscribe((newValue) => {
+            if (newValue < 0) {
+                this.copies(0)
+            }
+        }) // validate non-negative
+        this.copies.subscribe(() => window.signageViewModel.saveSigns());
+        this.name.subscribe(() => window.signageViewModel.saveSigns());
+        this.type.subscribe(() => window.signageViewModel.saveSigns());
+        this.items.subscribe(() => window.signageViewModel.saveSigns());
 
-                      self.currentlyEditingSign.subscribe(() => {
-                          console.log("here");
-                          console.log(self.currentlyEditingSign())
-                          if (self.currentlyEditingSign() !== null) {
-                              $('#edit-sign-dialog').fadeIn();
-                          } else {
-                              $('#edit-sign-dialog').fadeOut();
-                          }
-                      });
-                      
-                      self.closeModal = function () {
-                          self.currentlyEditingSign(null);
-                      }
+        this.toJson = function () {
+            return {
+                name: that.name(),
+                items: that.items(),
+                copies: that.copies(),
+                type: that.type(),
+                id: that.id()
+            };
+        };
+    }
 
-                      self.addSign = function () {
-                          const newSign = new Sign({name: "New Sign"});
-                          self.signs.push(newSign);
-                          return newSign;
-                      };
-                      
-                      self.editSign = function (sign) {
-                          self.currentlyEditingSign(sign);
-                      };
+    function ViewModel(data) {
+        const self = this;
+        self.signs = ko.observableArray([]);
 
-                      self.removeSign = function (sign) {
-                          self.signs.remove(sign);
-                      };
-                      
-                      self.toJson = function () {
-                            return ko.toJS(self.signs().map(s => s.toJson()));
-                      };
+        data.forEach(function (signData) {
+            self.signs.push(new Sign(signData));
+        });
 
-                      self.saveSigns = function () {
-                          // Save signs to server
-                          const formData = new URLSearchParams();
-                          formData.append('data', JSON.stringify(self.toJson()));
+        self.types = ko.observableArray([
+            {name: "Directional", fileName: "CalendarSignageDirectional"},
+            {name: "Reservations", fileName: "CalendarSignageReservations"},
+            {name: "Event Details", fileName: "CalendarSignageEventDetails"}
+        ]);
 
-                          // post to ?v=saveSigns
-                          fetch("/PyScriptForm/CalendarSignage?v=saveSigns", {
-                              method: "POST",
-                              credentials: 'include',
-                              body: formData
-                          }).then(response => {
-                              if (!response.ok) {
-                                  throw new Error("Network response was not ok"); 
-                              }
-                              return response.json();
-                          }).then(() => {
-                              console.log("Signs saved successfully!");
-                          })
-                      };
+        self.currentlyEditingSign = ko.observable(null);
 
-                      self.signs.subscribe(function (newSigns) {
-                          // Save signs to server on change
-                          self.saveSigns()
-                      });
-                  }
+        self.currentlyEditingSign.subscribe(() => {
+            console.log("here");
+            console.log(self.currentlyEditingSign())
+            if (self.currentlyEditingSign() !== null) {
+                $('#edit-sign-dialog').fadeIn();
+            } else {
+                $('#edit-sign-dialog').fadeOut();
+            }
+        });
 
-                  window.signageViewModel = new ViewModel(originalData);
-                  ko.applyBindings(window.signageViewModel);
-              </script>
-              """
+        self.closeModal = function () {
+            self.currentlyEditingSign(null);
+        }
+
+        self.addSign = function () {
+            const newSign = new Sign({name: "New Sign"});
+            self.signs.push(newSign);
+            return newSign;
+        };
+
+        self.editSign = function (sign) {
+            self.currentlyEditingSign(sign);
+        };
+
+        self.removeSign = function (sign) {
+            self.signs.remove(sign);
+        };
+
+        self.toJson = function () {
+            return ko.toJS(self.signs().map(s => s.toJson()));
+        };
+
+        self.saveSigns = function () {
+            // Save signs to server
+            const formData = new URLSearchParams();
+            formData.append('data', JSON.stringify(self.toJson()));
+
+            // post to ?v=saveSigns
+            fetch("/PyScriptForm/CalendarSignage?v=saveSigns", {
+                method: "POST",
+                credentials: 'include',
+                body: formData
+            }).then(response => {
+                if (!response.ok) {
+                    throw new Error("Network response was not ok");
+                }
+                return response.json();
+            }).then(() => {
+                console.log("Signs saved successfully!");
+            })
+        };
+
+        self.signs.subscribe(function (newSigns) {
+            // Save signs to server on change
+            self.saveSigns()
+        });
+    }
+
+    window.signageViewModel = new ViewModel(originalData);
+    ko.applyBindings(window.signageViewModel);
+</script>
+"""
 
     print(ko_form)
 
