@@ -266,7 +266,7 @@ def generate_calendar_html(date):
                 html.append("<td style='background:#f9f9f9; opacity:.5'>")
 
             day_link = "?v=d&d=%d-%d-%d" % (day.year, day.month, day.day)
-            html.append("<a class='daynum' href='%s'>%d</div>" % (day_link, day.day))
+            html.append("<a class='daynum' href='%s'>%d</a>" % (day_link, day.day))
             for ev in events:
 
                 classes = ['event']
