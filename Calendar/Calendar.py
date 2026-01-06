@@ -161,7 +161,7 @@ def get_reservations(dt):
     FROM #unioned u
         LEFT JOIN OrganizationMembers om ON u.OrganizationId = om.OrganizationId AND {1} = om.PeopleId
         LEFT JOIN lookup.MemberType l_mt ON om.MemberTypeId = l_mt.Id
-        LEFT JOIN Attend a ON m.MeetingId = a.MeetingId AND {1} = a.PeopleId;
+        LEFT JOIN Attend a ON u.MeetingId = a.MeetingId AND {1} = a.PeopleId;
 """.format(dt, model.UserPeopleId))
 
 
