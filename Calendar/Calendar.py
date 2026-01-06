@@ -16,6 +16,49 @@ from System import DateTime
 
 global model, Data, q
 
+def user_can_edit_event(event):
+    """ Determine if the current user can edit the given event. The event is a row from any of several queries, but
+    it must have isLeader and isMember fields."""
+    if model.IsUserInRole("Admin"):
+        return True
+
+    if hasattr(event, 'IsLeader') and event.IsLeader:
+        return True
+
+    return False
+
+def user_can_see_event_details(event):
+    """ Determine if the current user can see details for the given event. The event is a row from any of several queries, but
+    it must have isLeader, isMember fields."""
+    if model.IsUserInRole("Admin"):
+        return True
+
+    if not model.IsUserInRole("OrgLeaderOnly"):
+        return True
+
+    if hasattr(event, 'IsMember') and event.IsMember:
+        return True
+
+    if hasattr(event, 'IsExpected') and event.IsExpected:
+        return True
+
+    return False
+
+def user_is_expected_at_event(event):
+    """ Determine if the current user is expected at the given event. The event is a row from any of several queries, but
+    it must have isMember and isExpected field."""
+
+    if hasattr(event, 'IsNotExpected') and event.IsNotExpected:
+        return False
+
+    if hasattr(event, 'IsMember') and event.IsExpected:
+        return True
+
+    if hasattr(event, 'IsExpected') and event.IsExpected:
+        return True
+
+    return False
+
 def get_events(dt):
     return q.QuerySql("""
     SELECT 
@@ -23,15 +66,22 @@ def get_events(dt):
         m.MeetingEnd, 
         COALESCE(NULLIF(m.Description,''), o.organizationName) as MeetingName, 
         m.MeetingId,
-        1 * o.ShowInSites as Featured
+        1 * o.ShowInSites as Featured,
+        IIF(l_mt.attendanceTypeId > 0, 1, 0) as IsMember,
+        IIF(l_mt.attendanceTypeId = 10, 1, 0) as IsLeader,
+        IIF(a.AttendanceFlag = 1 OR a.Commitment IN (1, 2), 1, 0) as IsExpected,
+        IIF((a.AttendanceFlag = 0 AND a.MeetingDate < GETDATE()) OR a.Commitment IN (0, 3), 1, 0) as IsNotExpected
     FROM Meetings m
     LEFT JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+    LEFT JOIN OrganizationMembers om ON o.OrganizationId = om.OrganizationId AND {1} = om.PeopleId
+    LEFT JOIN lookup.MemberType l_mt ON om.MemberTypeId = l_mt.Id
+    LEFT JOIN Attend a ON m.MeetingId = a.MeetingId AND {1} = a.PeopleId
     
     WHERE m.MeetingDate < DATEADD(day, 1, '{0}') 
     AND COALESCE(m.MeetingEnd, m.MeetingDate) > '{0}'
     AND m.Canceled = 0
     ORDER BY MeetingDate, o.DivisionId
-""".format(dt))
+""".format(dt, model.CurrentPeopleId))
 
 
 def get_reservables():
@@ -68,7 +118,8 @@ def get_reservations(dt):
         COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name,
         0 as Quantity,
         m.MeetingId,
-        o.LeaderName
+        o.LeaderName,
+        o.OrganizationId
     INTO #reservables
     FROM Reservations rv
         JOIN Reservable rb ON rv.ReservableId = rb.ReservableId
@@ -88,7 +139,8 @@ def get_reservations(dt):
         COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name,
         ri.Quantity,
         m.MeetingId,
-        o.LeaderName
+        o.LeaderName,
+        o.OrganizationId
     INTO #Jawns
     FROM ReservationItems ri 
         LEFT JOIN Reservations rv ON ri.ReservationId = rv.ReservationId
@@ -97,11 +149,20 @@ def get_reservations(dt):
         JOIN Organizations o ON m.OrganizationId = o.OrganizationId
     WHERE rv.MeetingId IS NOT NULL 
         AND rv.MeetingEnd > '{0}'
-        AND rv.MeetingStart < DATEADD(day, 1, '{0}')
-    ;
+        AND rv.MeetingStart < DATEADD(day, 1, '{0}');
     
-    SELECT * FROM #reservables UNION SELECT * FROM #Jawns;
-""".format(dt))
+    SELECT * INTO #unioned FROM #reservables UNION SELECT * FROM #Jawns
+    
+    SELECT u.*,
+        IIF(l_mt.attendanceTypeId > 0, 1, 0) as IsMember,
+        IIF(l_mt.attendanceTypeId = 10, 1, 0) as IsLeader,
+        IIF(a.AttendanceFlag = 1 OR a.Commitment IN (1, 2), 1, 0) as IsExpected,
+        IIF((a.AttendanceFlag = 0 AND a.MeetingDate < GETDATE()) OR a.Commitment IN (0, 3), 1, 0) as IsNotExpected
+    FROM #unioned u
+        LEFT JOIN OrganizationMembers om ON u.OrganizationId = om.OrganizationId AND {1} = om.PeopleId
+        LEFT JOIN lookup.MemberType l_mt ON om.MemberTypeId = l_mt.Id
+        LEFT JOIN Attend a ON m.MeetingId = a.MeetingId AND {1} = a.PeopleId;
+""".format(dt, model.CurrentPeopleId))
 
 
 def get_rooms_for_meeting(meeting_id):
@@ -209,21 +270,35 @@ def generate_calendar_html(date):
             for ev in events:
 
                 classes = ['event']
+                edit = user_can_edit_event(ev)
+                view = user_can_see_event_details(ev)
 
-                if ev.Featured:
+                if ev.Featured and view:
                     classes.append('feat')
 
-                html.append("<a href='/Meeting/MeetingDetails/%s'>" % ev.MeetingId)
+                if edit:
+                    html.append("<a href='/Meeting/MeetingDetails/%s'>" % ev.MeetingId)
+                else:
+                    html.append("<div>")
 
                 html.append("<div class='%s'>" % ' '.join(classes))
 
-                html.append("%s<br>" % ev.MeetingName)
+                if view:
+                    html.append("%s<br>" % ev.MeetingName)
+                else:
+                    html.append("Event<br>")
+
                 html.append(("<small>%s - %s</small>" % (
                     ev.MeetingDate.ToString("h:mmtt").replace('M',''),  # TODO: make this work better with multi-day events.
                     ev.MeetingDate.ToString("h:mmtt").replace('M','') if ev.MeetingEnd is None else ev.MeetingEnd.ToString("h:mmtt").replace('M','')
                 )).lower().replace(":00",""))
 
-                html.append("</div></a>")
+                html.append("</div>")
+
+                if edit:
+                    html.append("</a>")
+                else:
+                    html.append("</div>")
             html.append("</td>")
         html.append("</tr>")
 
@@ -364,6 +439,10 @@ def generate_list_html(start_date, day_count, with_setups = False):
 
     current_day = None
     for ev in events:
+
+        view = user_can_see_event_details(ev)
+        edit = user_can_edit_event(ev)
+
         ev_date = ev.MeetingDate.Date
         if ev_date != current_day:
             if current_day is not None:
@@ -380,15 +459,22 @@ def generate_list_html(start_date, day_count, with_setups = False):
                 continue  # skip events with no rooms if showing setups
 
         classes = []
-        if ev.Featured:
+        if ev.Featured and view:
             classes.append('feat')
 
-        html.append("<a href='/Meeting/MeetingDetails/%s'>" % ev.MeetingId)
+        if edit:
+            html.append("<a href='/Meeting/MeetingDetails/%s'>" % ev.MeetingId)
+        else:
+            html.append("<div>")
 
         html.append("<section class='event'>")
 
         html.append("<header class='%s'>" % ' '.join(classes))
-        html.append("<h3>%s</h3>" % ev.MeetingName)
+        if view:
+            html.append("<h3>%s</h3>" % ev.MeetingName)
+        else:
+            html.append("<h3>Event</h3>")
+
         html.append(("<small>%s - %s</small>" % (
             ev.MeetingDate.ToString("h:mmtt").replace('M',''), # TODO make this work better with multi-day events.
             ev.MeetingDate.ToString("h:mmtt").replace('M','') if ev.MeetingEnd is None else ev.MeetingEnd.ToString("h:mmtt").replace('M','')
@@ -396,7 +482,7 @@ def generate_list_html(start_date, day_count, with_setups = False):
 
         html.append("</header>")
 
-        if with_setups:
+        if view and with_setups:
             html.append("<div class='rooms'>")
             for room in rooms:
                 rsrc = get_reservations_for_room_reservation(room.ReservationId)
@@ -432,7 +518,12 @@ def generate_list_html(start_date, day_count, with_setups = False):
                 html.append("</div>")
             html.append("</div>")
 
-        html.append("</section></a>")
+        html.append("</section>")
+
+        if edit:
+            html.append("</a>")
+        else:
+            html.append("</div>")
 
     if current_day is not None:
         html.append("</div>")  # close last day
@@ -595,19 +686,31 @@ def generate_calendar_vert_html(start_date, day_count):
             width = 100.0 / lane_count
             left = lane_index * width
 
+            edit = user_can_edit_event(ev)
+            view = user_can_see_event_details(ev)
+
             classes = ['event']
-            if ev.Featured:
+            if ev.Featured and view:
                 classes.append('feat')
 
-            html.append("<a href='/Meeting/MeetingDetails/%s' title=\"%s\">" % (ev.MeetingId, ev.MeetingName))
+            if edit:
+                html.append("<a href='/Meeting/MeetingDetails/%s' title=\"%s\">" % (ev.MeetingId, ev.MeetingName))
+            else :
+                html.append("<div>")
+
             html.append("<div class='%s' style='top:%dvh; height:%dvh; left:%.2f%%; width:%.2f%%'>" % (
                 ' '.join(classes), top, height, left, width))
             html.append("%s<br><small>%s - %s</small>" % (
-                ev.MeetingName,
+                ev.MeetingName if view else "Event",
                 ev.MeetingDate.ToString("h:mmtt").lower().replace(":00","").replace('m',''),
                 ev.MeetingEnd.ToString("h:mmtt").lower().replace(":00","").replace('m','') if ev.MeetingEnd else ""
             ))
-            html.append("</div></a>")
+            html.append("</div>")
+
+            if edit:
+                html.append("</a>")
+            else:
+                html.append("</div>")
 
         html.append("</div>")  # end daycol
 
@@ -735,6 +838,9 @@ def generate_room_gantt_html(date):
             setup_start = start.AddMinutes(-res.SetupMinutes)
             teardown_end = end.AddMinutes(res.TeardownMinutes)
 
+            view = user_can_see_event_details(res)
+            edit = user_can_edit_event(res)
+
             l = time_to_vw(start)
             width = time_to_vw(end) - l
             setup_left = time_to_vw(setup_start)
@@ -742,14 +848,22 @@ def generate_room_gantt_html(date):
 
             color = reservable_dict[res.ReservableId].Color
 
-            html.append("<a href='/Meeting/MeetingDetails/%s'>" % res.MeetingId)
+            if edit:
+                html.append("<a href='/Meeting/MeetingDetails/%s'>" % res.MeetingId)
+            else:
+                html.append("<div>")
 
 
             lane = rsbl._lanes[0][res]
             top_offset = round(lane / (.01 * rsbl._lanes[1]), 2)
             bot_offset = round(((rsbl._lanes[1] - 1 - lane) / (.01 * rsbl._lanes[1])), 2)
 
-            if res.SetupMinutes > 0 or res.TeardownMinutes > 0:
+            if not view:
+                res.Name = "Reserved"
+                l = setup_left
+                width = setup_width
+
+            if (res.SetupMinutes > 0 or res.TeardownMinutes > 0) and view:
                 html.append("<div class='bar setup' style='left:%.2fvw; width:%.2fvw; background:%s; top:calc(%.2f%% + 1px); bottom:calc(%.2f%% + 1px);'></div>" % (
                     setup_left, setup_width, color, top_offset, bot_offset
                 ))
@@ -760,12 +874,15 @@ def generate_room_gantt_html(date):
             lbl = ""
             if res.Quantity > 0:
                 lbl = "(%d) " % res.Quantity
-            if res.LeaderName is not None:
+            if res.LeaderName is not None and view:
                 lbl = "%s%s" % (lbl, res.LeaderName)
             if lbl != "":
                 html.append("<small><br />%s</small>" % lbl)
             html.append("</div>")
-            html.append("</a>")
+            if edit:
+                html.append("</a>")
+            else:
+                html.append("</div>")
         html.append("</div>")
 
         for child in children.get(rsbl.ReservableId, []):
