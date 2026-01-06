@@ -33,7 +33,7 @@ def user_can_see_event_details(event):
     if model.IsUserInRole("Admin"):
         return True
 
-    if not model.IsUserInRole("OrgLeaderOnly"):
+    if not model.IsUserInRole("OrgLeadersOnly"):
         return True
 
     if hasattr(event, 'IsMember') and event.IsMember:
