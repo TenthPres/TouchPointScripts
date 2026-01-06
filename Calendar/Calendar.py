@@ -19,7 +19,7 @@ global model, Data, q
 def user_can_edit_event(event):
     """ Determine if the current user can edit the given event. The event is a row from any of several queries, but
     it must have isLeader and isMember fields."""
-    if model.IsUserInRole("Admin"):
+    if model.UserIsInRole("Admin"):
         return True
 
     if hasattr(event, 'IsLeader') and event.IsLeader:
@@ -30,10 +30,10 @@ def user_can_edit_event(event):
 def user_can_see_event_details(event):
     """ Determine if the current user can see details for the given event. The event is a row from any of several queries, but
     it must have isLeader, isMember fields."""
-    if model.IsUserInRole("Admin"):
+    if model.UserIsInRole("Admin"):
         return True
 
-    if not model.IsUserInRole("OrgLeadersOnly"):
+    if not model.UserIsInRole("OrgLeadersOnly"):
         return True
 
     if hasattr(event, 'IsMember') and event.IsMember:
@@ -81,7 +81,7 @@ def get_events(dt):
     AND COALESCE(m.MeetingEnd, m.MeetingDate) > '{0}'
     AND m.Canceled = 0
     ORDER BY MeetingDate, o.DivisionId
-""".format(dt, model.CurrentPeopleId))
+""".format(dt, model.UserPeopleId))
 
 
 def get_reservables():
@@ -162,7 +162,7 @@ def get_reservations(dt):
         LEFT JOIN OrganizationMembers om ON u.OrganizationId = om.OrganizationId AND {1} = om.PeopleId
         LEFT JOIN lookup.MemberType l_mt ON om.MemberTypeId = l_mt.Id
         LEFT JOIN Attend a ON m.MeetingId = a.MeetingId AND {1} = a.PeopleId;
-""".format(dt, model.CurrentPeopleId))
+""".format(dt, model.UserPeopleId))
 
 
 def get_rooms_for_meeting(meeting_id):
