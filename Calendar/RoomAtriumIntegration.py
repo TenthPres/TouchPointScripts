@@ -93,11 +93,15 @@ class AtriumClient(object):
 
         self.session_id = None
         self.session_key = None
+        self.crypto_key = None
         self.serial = None
         self.timeout_at = None
 
+
+    get_cache = {}
+
     @staticmethod
-    def rc4(key, text):
+    def rc4_encrypt(key, text):
         s = list(range(256))
         j = 0
         for i in range(256):
@@ -116,45 +120,59 @@ class AtriumClient(object):
 
 
     @staticmethod
-    def rc4_decrypt_hex(key, hex_text):
+    def rc4_decrypt(key, text):
         """
-        Decrypts a hex-encoded RC4 ciphertext (e.g. '4FA01B...') into plaintext.
+        Decrypts a RC4 ciphertext into plaintext.
 
-        This is the inverse of rc4(key, plaintext) which returns hex.
+        This is the inverse of rc4_encrypt(key, plaintext).
+
+        Original JS: function rc4Decrypt(key, text) {var s = new Array(); for (var i = 0; i < 256; i++) { s[i] = i; } var j = 0; var x; for (i = 0; i < 256; i++) { j = (j + s[i] + key.charCodeAt(i % key.length)) % 256; x = s[i]; s[i] = s[j]; s[j] = x; } i = 0; j = 0; var ct = ''; if (0 == (text.length & 1)){ for (var y = 0; y < text.length; y+=2) { i = (i + 1) % 256; j = (j + s[i]) % 256; x = s[i]; s[i] = s[j]; s[j] = x; ct += String.fromCharCode((parseInt(text.substr(y, 2), 16) ^ s[(s[i] + s[j]) % 256])); }} return ct; }
         """
-        # Defensive: strip whitespace/newlines if present
-        hex_text = "".join(hex_text.split())
-
-        # Must be even length hex
-        if len(hex_text) % 2 != 0:
-            raise ValueError("RC4 hex ciphertext length must be even")
-
-        # Convert hex pairs to byte values (0-255)
-        cipher_bytes = [int(hex_text[i:i+2], 16) for i in range(0, len(hex_text), 2)]
-
-        # RC4 KSA
+        # Initialize state array
         s = list(range(256))
+
+        # KSA (Key Scheduling Algorithm)
         j = 0
+        key_len = len(key)
         for i in range(256):
-            j = (j + s[i] + ord(key[i % len(key)])) % 256
+            j = (j + s[i] + ord(key[i % key_len])) % 256
             s[i], s[j] = s[j], s[i]
 
-        # RC4 PRGA
+        # PRGA (Pseudo-Random Generation Algorithm) + decrypt
         i = 0
         j = 0
-        out_chars = []
-        for cb in cipher_bytes:
-            i = (i + 1) % 256
-            j = (j + s[i]) % 256
-            s[i], s[j] = s[j], s[i]
-            k = s[(s[i] + s[j]) % 256]
-            out_chars.append(chr(cb ^ k))
+        ct_chars = []
 
-        return "".join(out_chars)
+        # JS: if (0 == (text.length & 1)) { ... }  // only decrypt if even length
+        if (len(text) & 1) == 0:
+            # process 2 hex chars at a time
+            for y in range(0, len(text), 2):
+                i = (i + 1) % 256
+                j = (j + s[i]) % 256
+                s[i], s[j] = s[j], s[i]
+
+                k = s[(s[i] + s[j]) % 256]
+                byte_val = int(text[y:y+2], 16)  # parseInt(text.substr(y, 2), 16)
+                ct_chars.append(chr(byte_val ^ k))
+
+        return "".join(ct_chars)
 
 
     @staticmethod
-    def decrypt_xml(self, xml_data):
+    def post_chk_calc(s):
+        chk = 0
+        for ch in s:
+            chk += ord(ch)
+
+        # Mask to 16 bits
+        chk &= 0xFFFF
+
+        # Convert to uppercase hex, zero-padded to 4 characters
+        return format(chk, '04X')
+
+
+    @staticmethod
+    def decrypt_xml(key, xml_data):
         """
         Python translation of the JS decryptXml(xmlData).
 
@@ -177,15 +195,14 @@ class AtriumClient(object):
                 # JS: xmlData = xmlData.substr(IdxEnc, (IdxChk - IdxEnc));
                 xml_data = xml_data[idx_enc:idx_chk]
 
-                session_key = self.get_set_session_key()
-                if session_key is not None:
+                if key is not None:
                     # JS: xmlData = rc4Decrypt(getSetSessionKey(), xmlData);
                     # If your post_enc payload is hex ciphertext (typical with your rc4()),
                     # use rc4_decrypt_hex. If it's not hex, swap to your own decrypt routine.
-                    xml_data = self.rc4_decrypt_hex(session_key, xml_data)
+                    xml_data = AtriumClient.rc4_decrypt(key, xml_data)
 
                     # JS: chkSumCalc = postChkCalc(xmlData);
-                    chk_sum_calc = self.post_chk_calc(xml_data)
+                    chk_sum_calc = AtriumClient.post_chk_calc(xml_data)
 
                     # JS: chkSumCalc = parseInt(chkSumCalc, 16); chkSumCalc &= 65535;
                     chk_sum_calc = int(chk_sum_calc, 16) & 0xFFFF
@@ -204,14 +221,18 @@ class AtriumClient(object):
 
     def _http_post(self, path, data):
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        payload = data #urlencode(data)
+        payload = data
 
         url = "{}/{}".format(self.base_url, path.lstrip("/"))
-        try:
-            return model.RestPost(url, headers, payload)
-        except Exception:
-            pass
-            # return model.RestPost(url, headers, payload)
+        return model.RestPost(url, headers, payload)
+
+
+    def _http_get(self, path, data):
+        data = urlencode(data)
+        url = "{}/{}?{}".format(self.base_url, path.lstrip("/"), data)
+        response = model.RestGet(url, {})
+        return response
+
 
     def _get_temp_session(self):
         response = model.RestGet("{}/login_sdk.xml".format(self.base_url), {})
@@ -228,7 +249,10 @@ class AtriumClient(object):
 
         timeout_secs = _safe_int(conn.get("timeout"), 60)
         self.timeout_at = datetime.datetime.now() + datetime.timedelta(seconds=timeout_secs)
-        self.session_key = hashlib.md5((self.serial + self.session_id).encode()).hexdigest().upper()
+
+        # Keep the login-phase crypto key; this is what SDK keeps for decrypt/encrypt.
+        self.crypto_key = hashlib.md5((self.serial + self.session_id).encode()).hexdigest().upper()
+        self.session_key = self.crypto_key
 
     def authenticate(self):
         self._get_temp_session()
@@ -236,8 +260,8 @@ class AtriumClient(object):
         login_data = {
             "sid": self.session_id,
             "cmd": "login",
-            "login_user": AtriumClient.rc4(self.session_key, self.username),
-            "login_pass": hashlib.md5((self.session_key + self.password).encode()).hexdigest().upper(),
+            "login_user": AtriumClient.rc4_encrypt(self.crypto_key, self.username),
+            "login_pass": hashlib.md5((self.crypto_key + self.password).encode()).hexdigest().upper(),
         }
 
         response = self._http_post("login_sdk.xml", login_data)
@@ -253,7 +277,9 @@ class AtriumClient(object):
 
         timeout_secs = _safe_int(conn.get("timeout"), 60)
         self.timeout_at = datetime.datetime.now() + datetime.timedelta(seconds=timeout_secs)
-        self.session_key = hashlib.md5((self.serial + self.session_id).encode()).hexdigest().upper()
+
+        # Do not rotate crypto key here; server payload decryption expects the login-phase key.
+        self.session_key = self.crypto_key
 
         return True
 
@@ -270,6 +296,20 @@ class AtriumClient(object):
         if datetime.datetime.now() >= (self.timeout_at - datetime.timedelta(seconds=15)):
             self.authenticate()
 
+    def _decrypt_response(self, raw_response):
+        """Decryption-only compatibility: try likely keys in stable order."""
+        candidates = [self.crypto_key, self.session_key, self.session_id]
+        seen = set()
+        for key in candidates:
+            key = _normalize_text(key)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            response = self.decrypt_xml(key, raw_response)
+            if response is not None:
+                return response
+        return None
+
     def _post_cmd(self, path, cmd, extra_data=None):
         self._ensure_session()
 
@@ -280,28 +320,63 @@ class AtriumClient(object):
         if extra_data:
             data.update(extra_data)
 
-        response = self.decrypt_xml(self.session_id, self._http_post(path, data))
+        response = self._decrypt_response(self._http_post(path, data))
 
         if "INVALID" in _normalize_text(response).upper() and "SESSION" in _normalize_text(response).upper():
             self.authenticate()
             data["sid"] = self.session_id
-            response = self.decrypt_xml(self.session_id, self._http_post(path, data))
+            response = self._decrypt_response(self._http_post(path, data))
 
-        print(cmd)
-        print(self.session_id)
-        print(response)
+        return response
+
+    def _get(self, path):
+        if path in self.get_cache:
+            return self.get_cache[path]
+
+        self._ensure_session()
+
+        data = {
+            "sid": self.session_id
+        }
+
+        response = self._http_get(path, data)
+
+        print(response)  # TODO remove
+
+        response = self._decrypt_response(response)
+
+        print(response)  # TODO remove
+
+        if "INVALID" in _normalize_text(response).upper() and "SESSION" in _normalize_text(response).upper():
+            self.authenticate()
+            data["sid"] = self.session_id
+            response = self._decrypt_response(self._http_get(path, data))
+
+        self.get_cache[path] = response
 
         return response
 
     def get_schedules(self):
-        response = self._post_cmd("schedules.xml", "list_schedules")
+        response = self._get("schedules.xml")
+
         xml = ET.fromstring(response)
         schedules = []
-        for schedule in xml.findall(".//SCHEDULE"):
+
+        for schedule in xml.findall(".//SCHED"):
+            sid = _normalize_text(schedule.get("id"))
+            if not sid:
+                continue
+
             schedules.append({
-                "id": _normalize_text(schedule.get("id")),
-                "name": _normalize_text(schedule.get("name")) or "Unnamed Schedule",
+                "id": sid,
+                "state": _normalize_text(schedule.get("state")),
+                "name": (
+                    _normalize_text(schedule.get("name"))
+                    or _normalize_text(schedule.get("label"))
+                    or "Unnamed Schedule"
+                ),
             })
+
         return schedules
 
     def get_events(self, schedule_id):
@@ -349,6 +424,100 @@ class AtriumClient(object):
         response = self._post_cmd("events_sdk.xml", "remove_events", data)
         return "SUCCESS" in _normalize_text(response).upper(), response
 
+    def get_users(self):
+        """Fetch all users from Atrium."""
+        response = self._get("users.xml")
+
+        print(response)
+
+        xml = ET.fromstring(response)
+
+        users = []
+
+        for rec in xml.findall(".//REC"):
+            user_id = _normalize_text(rec.get("id"))
+            if not user_id:
+                continue
+
+            cfg = rec.find("cfg")
+            if cfg is None:
+                continue
+
+            first_name = _normalize_text(cfg.findtext("label3", ""))
+            last_name = _normalize_text(cfg.findtext("label4", ""))
+            valid = _normalize_text(cfg.findtext("valid", "0"))
+
+            # Parse activation and expiration times (GMT)
+            activation = _normalize_text(cfg.findtext("utc_time22", ""))
+            expiration = _normalize_text(cfg.findtext("utc_time23", ""))
+
+            # Parse access level IDs (up to 5)
+            access_levels = []
+            for i in range(5):
+                access_level_tag = "word24"
+                # The XML structure may have multiple word24 tags or indexed tags
+                # We'll try to extract them
+                word24_elements = cfg.findall(access_level_tag)
+                if i < len(word24_elements):
+                    al_val = _normalize_text(word24_elements[i].text or "")
+                    if al_val and al_val != "0":
+                        access_levels.append(al_val)
+
+            users.append({
+                "user_id": user_id,
+                "first_name": first_name,
+                "last_name": last_name,
+                "full_name": "{} {}".format(first_name, last_name).strip(),
+                "activation": activation,
+                "expiration": expiration,
+                "valid": valid,
+                "is_active": valid not in ("0", "00"),
+                "access_levels": access_levels,
+            })
+
+        return users
+
+    def get_cards(self):
+        """Fetch all cards from Atrium."""
+        response = self._post_cmd("records_sdk.xml", "list_records", {"obj_type": "12"})
+        xml = ET.fromstring(response)
+        cards = []
+
+        for rec in xml.findall(".//REC"):
+            card_id = _normalize_text(rec.get("id"))
+            if not card_id:
+                continue
+
+            cfg = rec.find("cfg")
+            if cfg is None:
+                continue
+
+            label = _normalize_text(cfg.findtext("label3", ""))
+            user_id = _normalize_text(cfg.findtext("dword4", ""))
+            card_id_low = _normalize_text(cfg.findtext("hexv5", ""))
+            card_id_high = _normalize_text(cfg.findtext("hexv6", ""))
+            valid = _normalize_text(cfg.findtext("valid", "0"))
+
+            # Parse activation and expiration times (GMT)
+            activation = _normalize_text(cfg.findtext("utc_time24", ""))
+            expiration = _normalize_text(cfg.findtext("utc_time25", ""))
+
+            # Combine card ID parts
+            card_number = "{}-{}".format(card_id_low, card_id_high) if card_id_low and card_id_high else card_id_low or card_id_high
+
+            cards.append({
+                "card_id": card_id,
+                "label": label,
+                "user_id": user_id,
+                "card_number": card_number,
+                "activation": activation,
+                "expiration": expiration,
+                "valid": valid,
+                "is_active": valid not in ("0", "00"),
+            })
+
+        return cards
+
 
 def get_atrium_client():
     global _atrium_client
@@ -369,7 +538,6 @@ def get_atrium_client():
 
 def has_valid_credentials():
     try:
-        print("here1")
         get_atrium_client().get_schedules()
         return True
     except Exception:
@@ -659,7 +827,7 @@ def render_config_form():
     schedules = get_atrium_client().get_schedules()
     schedules.sort(key=lambda s: s.get("name", ""))
 
-    reservables = [r for r in get_reservables(1) if r.IsReservable]
+    reservables = [r for r in get_reservables(3) if r.IsReservable]
     config = get_config()
     mapping = config.get("devices", {}).get("atrium", {})
 
@@ -721,6 +889,18 @@ def render_config_form():
         </form>
         """.format(rows="\n".join(rows))
     )
+
+    # Display users and cards
+    render_users_and_cards_section()
+
+
+def render_users_and_cards_section():
+    """Render users and cards from Atrium for synchronization."""
+    client = get_atrium_client()
+    users = client.get_users()
+
+    print(users)
+
 
 
 def render_status_page():
