@@ -22,6 +22,9 @@ def user_can_edit_event(event):
     if model.UserIsInRole("Admin"):
         return True
 
+    if model.UserIsInRole("CalendarManagement"):
+        return True
+
     if hasattr(event, 'IsLeader') and event.IsLeader:
         return True
 
@@ -33,7 +36,7 @@ def user_can_see_event_details(event):
     if model.UserIsInRole("Admin"):
         return True
 
-    if not model.UserIsInRole("OrgLeadersOnly"):
+    if model.UserIsInRole("Access") and not model.UserIsInRole("OrgLeadersOnly"):
         return True
 
     if hasattr(event, 'IsMember') and event.IsMember:
@@ -336,63 +339,63 @@ def generate_list_html(start_date, day_count, with_setups = False):
     html = []
     # language=HTML
     html.append("""
-    <style>
-        .event {
-            margin: 1em 0; 
-            padding: .5em;
-            border: solid 2px #def; 
-            border-radius: 3px;
-            break-inside: avoid;
-        }
+                <style>
+                    .event {
+                        margin: 1em 0;
+                        padding: .5em;
+                        border: solid 2px #def;
+                        border-radius: 3px;
+                        break-inside: avoid;
+                    }
 
-        .day-events {
-            break-after: page;
-        }
-        
-        .rooms {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1em;
-            /* border: 1px solid #49917b; */
-        }
+                    .day-events {
+                        break-after: page;
+                    }
 
-        .room {
-            flex-grow: 1;
-            flex-basis: 17em;
-            border: 1px solid #def;
-            border-radius: 3px;
-            padding: .5em;
-        }
+                    .rooms {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 1em;
+                        /* border: 1px solid #49917b; */
+                    }
 
-        .event header > *, .room-header > * {
-            display: inline-block;
-            margin-top: 0;
-        }
+                    .room {
+                        flex-grow: 1;
+                        flex-basis: 17em;
+                        border: 1px solid #def;
+                        border-radius: 3px;
+                        padding: .5em;
+                    }
 
-        .event header.feat {
-            background-color: #def;
-            margin: -.5em -.5em .5em;
-            padding: .5em;
-        }
+                    .event header > *, .room-header > * {
+                        display: inline-block;
+                        margin-top: 0;
+                    }
 
-        .nav.cal {
-            display: flex; 
-            gap: 1em;
-        }
-        
-        .nav.cal > * {
-            flex:1;
-        }
-        
-        .nav-c {
-            text-align:center;
-        }
-        
-        .nav-r {
-            text-align:right;
-        }
-    </style>
-    """)
+                    .event header.feat {
+                        background-color: #def;
+                        margin: -.5em -.5em .5em;
+                        padding: .5em;
+                    }
+
+                    .nav.cal {
+                        display: flex;
+                        gap: 1em;
+                    }
+
+                    .nav.cal > * {
+                        flex:1;
+                    }
+
+                    .nav-c {
+                        text-align:center;
+                    }
+
+                    .nav-r {
+                        text-align:right;
+                    }
+                </style>
+                """)
 
     span_term = "Span"
     span_link = str(day_count)
