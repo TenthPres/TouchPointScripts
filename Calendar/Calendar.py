@@ -51,13 +51,13 @@ def user_is_expected_at_event(event):
     if hasattr(event, 'IsNotExpected') and event.IsNotExpected:
         return False
 
-    if hasattr(event, 'IsMember') and event.IsExpected:
+    if hasattr(event, 'IsMember') and event.IsMember:
         return True
 
     if hasattr(event, 'IsExpected') and event.IsExpected:
         return True
 
-    return False
+    return None
 
 def get_events(dt):
     return q.QuerySql("""
