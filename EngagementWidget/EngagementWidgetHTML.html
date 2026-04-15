@@ -81,17 +81,13 @@ let engagementChart = function() {
         }
     },
     loadVenn = function() {
-        if (typeof window.Highcharts._modules["Series/Venn/VennUtils.js"] !== "undefined") {
-            return doChart();
-        } else {
-            let script = document.createElement('script');
-            script.onload = function () {
-                doChart()
-            };
-            script.src = "https://code.highcharts.com/modules/venn.js";
-            
-            document.head.appendChild(script); 
-        }
+        let script = document.createElement('script');
+        script.onload = function () {
+            doChart()
+        };
+        script.src = "https://code.highcharts.com/modules/venn.js";
+        
+        document.head.appendChild(script); 
     };
     loadHighcharts();
 };
