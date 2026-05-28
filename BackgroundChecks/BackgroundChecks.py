@@ -443,8 +443,8 @@ else:
                   "Once you receive your certification in the mail, please scan it and " \
                   "<a href=\"/OnlineReg/96\" >upload it here</a>.</li>"
             print "<li>If you <b>already have the fingerprinting credential</b> because of your work or volunteering elsewhere, you can " \
-                  "<a href=\"/OnlineReg/96\" >upload it here</a>.  The body of the document should begin with " \
-                  "\"Your fingerprint based record check\"...</li>"
+                  "<a href=\"/OnlineReg/96\" >upload it here</a>.  The body of the document will typically have two checkboxes: " \
+                  "\"Eligible\" and \"Ineligible.\"</li>"
             print "</ul></div>"
 
         if 'FBI Emp' in n:
