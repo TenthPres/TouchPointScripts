@@ -3,7 +3,7 @@
 # Pckgd
 # Title: PA Background Checks
 # Description: Make Pennsylvania background checks just a little better.
-# Updates from: GitHub/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks.py
+# Updates from: github/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks.py
 # Author: James at Tenth
 # Requires: BackgroundChecks-Status.sql
 
@@ -435,7 +435,8 @@ else:
                   " FBI fingerprint check.  Pennsylvania uses IdentoGo as a provider for this service.  Either make your " \
                   "appointment at a location in PA (STRONGLY suggested), or use the \"Card Submission By Mail\" option, " \
                   "which will provide instructions for completing a fingerprint card and submitting it back to " \
-                  "IdentoGo. (This is much LESS convenient than it sounds, and also more expensive.)  " \
+                  "IdentoGo. (This is much LESS convenient than it sounds, and also more expensive.)  You will " \
+                  "need to pay for this service yourself, but can request reimbursement once complete.  " \
                   "<a href=\"https://uenroll.identogo.com/workflows/1KG6ZJ/appointment/bio\"" \
                   " target=\"_blank\">Click here to enter your information and arrange a fingerprinting " \
                   "appointment.</a>  " \
@@ -449,7 +450,8 @@ else:
         if 'FBI Emp' in n:
             print "<div class=\"well\">We need your FBI Fingerprinting clearance. Please make an appointment for fingerprinting. " \
                   "Pennsylvania uses IdentoGo as a provider for this service, and you will be " \
-                  "required to make an appointment at a location in PA.  A few weeks after your appointment, " \
+                  "required to make an appointment at a location in PA.  You will need to pay for " \
+                  "this service yourself, but can request reimbursement once complete. A few weeks after your appointment, " \
                   " your certification will be mailed to you.  Please scan it and upload it here."
             print "<br /><a href=\"https://uenroll.identogo.com/workflows/1KG756/appointment/bio\" class=\"btn btn-primary\">Make Appointment</a>&nbsp;<a href=\"/OnlineReg/96\" class=\"btn btn-primary\">Submit Document</a>"
             print "</div>"
