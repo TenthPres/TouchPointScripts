@@ -107,7 +107,7 @@ def needs(r, p):  # row, person
         n.append('Ssn')
 
     if actionForDate(r.Training) != "Valid":
-        if r.TrainAssign is None or r.Training > r.TrainAssign:
+        if r.TrainAssign is None:
             n.append("Train Assign")
         else:
             n.append("Train Completion")
