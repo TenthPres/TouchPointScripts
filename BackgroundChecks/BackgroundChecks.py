@@ -120,8 +120,10 @@ if (model.Data.view == "list" and (userPerson.Users[0].InRole('BackgroundCheck')
     model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; } .box-content a:not(.btn) {text-decoration: underline;}</style>"
 
     adminMode = (model.Data.view == "admin" and userPerson.Users[0].InRole('Admin'))
+    
+    sql = "{0} ORDER BY IIF(s.ActionRequired > GETDATE(), 1, 0), s.LastName".format(mainQuery)
 
-    for r in q.QuerySql(mainQuery):
+    for r in q.QuerySql(sql):
 
         cls = 'y' if not r.Status == "Invalid" else 'n'
 
