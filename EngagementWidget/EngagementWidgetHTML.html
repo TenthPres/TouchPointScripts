@@ -25,6 +25,9 @@
 let engagementChart = function() {
     let doChart = function() {
         window.engChart = Highcharts.chart('{{WidgetId}}-chart-container', {
+            chart: {
+                backgroundColor: 'transparent',
+            },
             accessibility: {
                 point: {
                     valueDescriptionFormat: '{point.name}: {point.longDescription}.'
