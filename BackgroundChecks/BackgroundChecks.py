@@ -9,7 +9,7 @@
 
 from System import DateTime, String, Convert
 
-global model, Data
+global model, Data, q
 
 mainQuery = model.SqlContent('BackgroundChecks-Status')
 
@@ -107,7 +107,7 @@ def needs(r, p):  # row, person
         n.append('Ssn')
 
     if actionForDate(r.Training) != "Valid":
-        if r.TrainAssign is None or r.Training > r.TrainAssign:
+        if r.TrainAssign is None or r.TrainAssign.AddYears(2) == r.Training:  # second case deals with situation where renewal is coming.
             n.append("Train Assign")
         else:
             n.append("Train Completion")
@@ -121,7 +121,9 @@ if (model.Data.view == "list" and (userPerson.Users[0].InRole('BackgroundCheck')
 
     adminMode = (model.Data.view == "admin" and userPerson.Users[0].InRole('Admin'))
 
-    for r in q.QuerySql(mainQuery):
+    sql = "{0} ORDER BY IIF(s.ActionRequired > GETDATE(), 1, 0), s.LastName".format(mainQuery)
+
+    for r in q.QuerySql(sql):
 
         cls = 'y' if not r.Status == "Invalid" else 'n'
 
@@ -354,6 +356,10 @@ else:
 
         if len(n) == 0:
             print "<p>Your checks do not yet need renewal.  We will let you know when your action is required.</p>"
+
+        elif r.Status == "Invalid":
+            print "<p>Please follow each of the steps below to complete the process.</p>"
+
         else:
             print "<p>Your checks expire soon.  Please help us update them, following each of the steps below.</p>"
             print '<!-- Item codes: {} -->'.format(n)
@@ -435,21 +441,23 @@ else:
                   " FBI fingerprint check.  Pennsylvania uses IdentoGo as a provider for this service.  Either make your " \
                   "appointment at a location in PA (STRONGLY suggested), or use the \"Card Submission By Mail\" option, " \
                   "which will provide instructions for completing a fingerprint card and submitting it back to " \
-                  "IdentoGo. (This is much LESS convenient than it sounds, and also more expensive.)  " \
+                  "IdentoGo. (This is much LESS convenient than it sounds, and also more expensive.)  You will " \
+                  "need to pay for this service yourself, but can request reimbursement once complete.  " \
                   "<a href=\"https://uenroll.identogo.com/workflows/1KG6ZJ/appointment/bio\"" \
                   " target=\"_blank\">Click here to enter your information and arrange a fingerprinting " \
                   "appointment.</a>  " \
                   "Once you receive your certification in the mail, please scan it and " \
                   "<a href=\"/OnlineReg/96\" >upload it here</a>.</li>"
             print "<li>If you <b>already have the fingerprinting credential</b> because of your work or volunteering elsewhere, you can " \
-                  "<a href=\"/OnlineReg/96\" >upload it here</a>.  The body of the document should begin with " \
-                  "\"Your fingerprint based record check\"...</li>"
+                  "<a href=\"/OnlineReg/96\" >upload it here</a>.  The body of the document will typically have two checkboxes: " \
+                  "\"Eligible\" and \"Ineligible.\"</li>"
             print "</ul></div>"
 
         if 'FBI Emp' in n:
             print "<div class=\"well\">We need your FBI Fingerprinting clearance. Please make an appointment for fingerprinting. " \
                   "Pennsylvania uses IdentoGo as a provider for this service, and you will be " \
-                  "required to make an appointment at a location in PA.  A few weeks after your appointment, " \
+                  "required to make an appointment at a location in PA.  You will need to pay for " \
+                  "this service yourself, but can request reimbursement once complete. A few weeks after your appointment, " \
                   " your certification will be mailed to you.  Please scan it and upload it here."
             print "<br /><a href=\"https://uenroll.identogo.com/workflows/1KG756/appointment/bio\" class=\"btn btn-primary\">Make Appointment</a>&nbsp;<a href=\"/OnlineReg/96\" class=\"btn btn-primary\">Submit Document</a>"
             print "</div>"
