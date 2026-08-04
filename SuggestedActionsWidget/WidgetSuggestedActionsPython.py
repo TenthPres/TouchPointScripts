@@ -1,14 +1,47 @@
+import json
+global Data, q, model
+
 def Get():
     # sql = Data.SQLContent
     template = Data.HTMLContent
     # params = { 'pid':  }
-    
+
     pid = model.UserPeopleId
-    if pid == 12255: # James's PID
-        pid = 18428 # Jamin's PID because it's more useful for testing
-    
+    if pid == 12255:
+        # pid = 2268 # Michel's PID because it's more useful for testing
+        # pid = 27989 # Brock
+        # pid = 3555  # George 
+        # pid = 13158 # Alex Garcia
+        # pid = 5179 # Tom Thompson
+        # pid = 1
+        pass
+
     Data.results = []
-    
+    Data.script = ""
+
+    # Background Checks
+    sql = "{0} WHERE PeopleId = {1}".format(model.SqlContent('BackgroundChecks-Status'), pid)
+    backgroundCheckStatus = q.QuerySqlTop1(sql)
+    if backgroundCheckStatus is None:
+        # No background check needed; do nothing
+        pass
+
+    elif backgroundCheckStatus.DaysToAction < 1:
+        Data.results.append(model.DynamicData({
+            "path": "/PyScript/BackgroundCheck",
+            "fa": "check",
+            "label": "Submit Overdue Background Check",
+            "classes": "errant"
+        }))
+    elif backgroundCheckStatus.DaysToAction < 60:
+        Data.results.append(model.DynamicData({
+            "path": "/PyScript/BackgroundCheck",
+            "fa": "check",
+            "label": "Background Checks Expiring Soon",
+            "classes": "warn"
+        }))
+
+
     # For Shepherds: see those assigned to them
     shepCnt = q.QuerySqlInt("SELECT COUNT(*) FROM FamilyExtra WHERE Field = 'Shepherd PID' AND IntValue = {}".format(pid))
     if shepCnt > 0:
@@ -17,40 +50,10 @@ def Get():
             "fa": "users",
             "label": "My Flock"
         }))
-        
-    
+
+
     # Parish Emails
-    parishes = [
-        {
-            "name": "Metro",
-            "council": 191,
-            "emailList": "f8285d98-15a5-46c7-8edf-35e06a8b2359"
-        },
-        {
-            "name": "North",
-            "council": 192,
-            "emailList": "f7134258-ad0f-4739-83d7-42e417378f9a"
-        },
-        {
-            "name": "West",
-            "council": 193,
-            "emailList": "6013e87d-c1de-4007-b54d-efc5e37c4e05"
-        },
-        {
-            "name": "Brandywine",
-            "council": 194,
-            "emailList": "b9e1b009-a154-4c93-ab9d-275c43f9c7d6"
-        },
-        {
-            "name": "Jersey",
-            "council": 195,
-            "emailList": "b7750b1b-13c4-4343-8380-c0bdcf4911cd"
-        },
-        {
-            "name": "Non-Res",
-            "council": 196
-        }
-    ]
+    parishes = json.loads(model.TextContent('Parishes.json'))
     for p in parishes:
         if model.InOrg(pid, p['council']):
             if 'emailList' in p:
@@ -60,7 +63,98 @@ def Get():
                     "label": "Send {} Parish Email".format(p['name'])
                 }))
 
+    CommunionHappeningNowSql = """
+                               -- Next Communion
+                               SELECT COUNT(*) as cnt
+                               FROM MeetingExtra me
+                                        JOIN Meetings m ON me.MeetingId = m.MeetingId
+                               WHERE me.Field = 'Communion' AND m.MeetingEnd > DATEADD(hour, -2, GETDATE()) AND m.MeetingDate < DATEADD(hour, 2, GETDATE()); \
+                               """
 
+
+    # Communion Attendance
+    LastCommunionSql = """
+    -- Last Communion for given pid
+    SELECT TOP 1
+        Date,
+        WksAgo
+    FROM (
+        SELECT 
+            tn.DueDate as Date, 
+            DATEDIFF(week, tn.DueDate, GETDATE()) as WksAgo
+        FROM TaskNoteKeyword tnk 
+        JOIN Keyword k ON tnk.KeywordId = k.KeywordId
+        JOIN TaskNote tn ON tnk.TaskNoteId = tn.TaskNoteId
+        WHERE k.Code = 'CA'
+        AND tn.AboutPersonId = {0}
+        
+        UNION
+        
+        SELECT 
+            a.MeetingDate as Date, 
+            DATEDIFF(week, a.MeetingDate, GETDATE()) as WksAgo
+        FROM MeetingExtra me 
+        JOIN Attend a ON me.MeetingId = a.MeetingId
+        WHERE me.Field = 'Communion' 
+        AND a.PeopleId = {0} 
+        AND a.AttendanceFlag = 1
+    ) AS CombinedData
+    ORDER BY Date DESC;
+    """.format(pid)
+
+    Data.script += """
+    function CommunionAction() {
+        swal("Please Report Communion", "The next time you attend a service with communion, please report your attendance at tenth.org/communion or by marking the yellow slips.");
+        return false;
+    }
+    """
+
+    LastCommunion = q.QuerySqlTop1(LastCommunionSql)
+    CurrentCommunionCount = q.QuerySqlInt(CommunionHappeningNowSql)
+    if CurrentCommunionCount > 0:
+        Data.results.append(model.DynamicData({
+            "path": "https://www.tenth.org/communion",
+            "fa": "glass",
+            "label": "Report Communion Attendance",
+            "classes": "warn"
+        }))
+    elif LastCommunion is None:
+        Data.results.append(model.DynamicData({
+            "path": "https://www.tenth.org/communion",
+            "fa": "glass",
+            "label": "No Recorded Communion",
+            "onclick": "return CommunionAction()",
+            "classes": "errant"
+        }))
+
+    elif LastCommunion.WksAgo > 5:
+        Data.results.append(model.DynamicData({
+            "path": "https://www.tenth.org/communion",
+            "fa": "glass",
+            "label": "{} weeks since Communion".format(LastCommunion.WksAgo),
+            "onclick": "return CommunionAction()",
+            "classes": "errant"
+        }))
+
+
+    # Volunteer Scheduler Involvements
+    invs = q.QuerySql("""SELECT OrganizationId as id, OrganizationName as name FROM Organizations WHERE RegistrationTypeId = 22;""")
+    for i in invs:
+        if model.InOrg(pid, i.id):
+            Data.results.append(model.DynamicData({
+                "path": "/OnlineReg/{}".format(i.id),
+                "fa": "calendar-check-o",
+                "label": "Manage {} Commitments".format(i.name)
+            }))
+
+
+    # View Facilities Tickets
+    if model.InOrg(pid, 127):
+        Data.results.append(model.DynamicData({
+            "path": "/PyScript/FacilitiesTicketReport",
+            "fa": "paint-brush",
+            "label": "View Facilities Issues"
+        }))
 
 
     # How-To Videos
@@ -69,8 +163,8 @@ def Get():
         "fa": "video-camera",
         "label": "How-To Videos"
     }))
-    
-    
-    print model.RenderTemplate(template)
+
+
+    print(model.RenderTemplate(template))
 
 Get()
