@@ -84,7 +84,7 @@ def process_queue():
                              ON m.MeetingId = a.MeetingId AND tsmv.PeopleId = a.PeopleId
 
           WHERE tsmv.IsActive = 1
-            AND m.MeetingDate <= DATEADD(HOUR, 4, GETDATE())
+            AND m.MeetingDate <= DATEADD(HOUR, 6, GETDATE())
             AND m.MeetingDate >= DATEADD(HOUR, -4, GETDATE())
             AND (
               oe_ap.BitValue = 1
