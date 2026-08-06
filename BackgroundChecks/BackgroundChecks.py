@@ -3,13 +3,13 @@
 # Pckgd
 # Title: PA Background Checks
 # Description: Make Pennsylvania background checks just a little better.
-# Updates from: github/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks.py
+# Updates from: GitHub/TenthPres/TouchPointScripts/BackgroundChecks/BackgroundChecks.py
 # Author: James at Tenth
 # Requires: BackgroundChecks-Status.sql
 
 from System import DateTime, String, Convert
 
-global model, Data
+global model, Data, q
 
 mainQuery = model.SqlContent('BackgroundChecks-Status')
 
@@ -107,7 +107,7 @@ def needs(r, p):  # row, person
         n.append('Ssn')
 
     if actionForDate(r.Training) != "Valid":
-        if r.TrainAssign is None:
+        if r.TrainAssign is None or r.TrainAssign.AddYears(2) == r.Training:  # second case deals with situation where renewal is coming.
             n.append("Train Assign")
         else:
             n.append("Train Completion")
@@ -120,7 +120,7 @@ if (model.Data.view == "list" and (userPerson.Users[0].InRole('BackgroundCheck')
     model.Styles = "<style>.y { background: #dfd;} .n { background: #fdd; } .box-content a:not(.btn) {text-decoration: underline;}</style>"
 
     adminMode = (model.Data.view == "admin" and userPerson.Users[0].InRole('Admin'))
-    
+
     sql = "{0} ORDER BY IIF(s.ActionRequired > GETDATE(), 1, 0), s.LastName".format(mainQuery)
 
     for r in q.QuerySql(sql):
@@ -356,6 +356,10 @@ else:
 
         if len(n) == 0:
             print "<p>Your checks do not yet need renewal.  We will let you know when your action is required.</p>"
+
+        elif r.Status == "Invalid":
+            print "<p>Please follow each of the steps below to complete the process.</p>"
+
         else:
             print "<p>Your checks expire soon.  Please help us update them, following each of the steps below.</p>"
             print '<!-- Item codes: {} -->'.format(n)
