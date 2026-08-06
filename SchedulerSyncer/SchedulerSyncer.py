@@ -84,8 +84,8 @@ def process_queue():
                              ON m.MeetingId = a.MeetingId AND tsmv.PeopleId = a.PeopleId
 
           WHERE tsmv.IsActive = 1
-            AND m.MeetingDate <= DATEADD(DAY, 1, GETDATE())
-            AND m.MeetingDate >= DATEADD(DAY, -0, GETDATE())
+            AND m.MeetingDate <= DATEADD(HOUR, 4, GETDATE())
+            AND m.MeetingDate >= DATEADD(HOUR, -4, GETDATE())
             AND (
               oe_ap.BitValue = 1
                   OR oe_ae.BitValue = 1
@@ -209,6 +209,8 @@ def process_queue():
                 model.DropOrgMember(pid, oid)
             else:
                 model.SetMemberType(pid, oid, _get_memberType_string(mtid))
+
+            config["assignments"].pop(assn)
 
     model.WriteContent("SchedulerSyncer.json", json.dumps(config, indent=2))
 
@@ -1391,7 +1393,7 @@ if model.Data.a == "groups":
 elif model.HttpMethod == "post" and model.Data.a == "save":
     process_save()
 
-elif model.Data.a == "process" or model.Data.SchedulerSyncerCaller == "MorningBatch":
+elif model.Data.a == "process" or model.Data.SchedulerSyncerCaller != "":
     process_queue()
 
 else:
