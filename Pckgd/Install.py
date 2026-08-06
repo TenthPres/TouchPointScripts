@@ -7,7 +7,7 @@ if '''model.CallScript("Pckgd")''' not in batchContent and '''model.CallScript('
     batchContent = batchContent + '''\n\nData.pckgdCaller = "MorningBatch"\nmodel.CallScript("Pckgd")'''
     model.WriteContentPython("MorningBatch", batchContent)
 
-batchContent = model.TextContent('ScheduledTasks')
+batchContent = model.PythonContent('ScheduledTasks')
 if '''model.CallScript("Pckgd")''' not in batchContent and '''model.CallScript('Pckgd')''' not in batchContent:
     batchContent = batchContent + '''\n\nData.pckgdCaller = "ScheduledTasks"\nmodel.CallScript("Pckgd")'''
     model.WriteContentPython("ScheduledTasks", batchContent)

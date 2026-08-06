@@ -5,7 +5,7 @@ There are a few simple scripts to make it easier to work with the Volunteer Sche
 ## CommitmentListingForFuture
 
 This script simply lists all upcoming commitments for an involvement for a certain number of days in the future. 
-You'll need to change the Involvement ID and number of days to look foward at the top. 
+You'll need to change the Involvement ID and number of days to look forward at the top.
 
 ## CommitmentStatusFlag
 
