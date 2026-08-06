@@ -1391,7 +1391,7 @@ if model.Data.a == "groups":
 elif model.HttpMethod == "post" and model.Data.a == "save":
     process_save()
 
-elif model.Data.a == "process":
+elif model.Data.a == "process" or model.Data.SchedulerSyncerCaller == "MorningBatch":
     process_queue()
 
 else:

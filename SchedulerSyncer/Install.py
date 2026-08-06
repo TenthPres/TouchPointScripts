@@ -1,15 +1,15 @@
-# This script adds Pckgd to the MorningBatch and ScheduledTask files, allowing automatic updates.
+# This script adds SchedulerSyncer to the MorningBatch and ScheduledTask files, so processing happens automatically.
 
 global model, Data, q
 
 batchContent = model.PythonContent('MorningBatch')
-if '''model.CallScript("Pckgd")''' not in batchContent and '''model.CallScript('Pckgd')''' not in batchContent:
-    batchContent = batchContent + '''\n\nData.pckgdCaller = "MorningBatch"\nmodel.CallScript("Pckgd")'''
+if '''model.CallScript("SchedulerSyncer")''' not in batchContent and '''model.CallScript('SchedulerSyncer')''' not in batchContent:
+    batchContent = batchContent + '''\n\nData.SchedulerSyncerCaller = "MorningBatch"\nmodel.CallScript("SchedulerSyncer")'''
     model.WriteContentPython("MorningBatch", batchContent)
 
 batchContent = model.PythonContent('ScheduledTasks')
-if '''model.CallScript("Pckgd")''' not in batchContent and '''model.CallScript('Pckgd')''' not in batchContent:
-    batchContent = batchContent + '''\n\nData.pckgdCaller = "ScheduledTasks"\nmodel.CallScript("Pckgd")'''
+if '''model.CallScript("SchedulerSyncer")''' not in batchContent and '''model.CallScript('SchedulerSyncer')''' not in batchContent:
+    batchContent = batchContent + '''\n\nData.SchedulerSyncerCaller = "ScheduledTasks"\nmodel.CallScript("SchedulerSyncer")'''
     model.WriteContentPython("ScheduledTasks", batchContent)
 
-print("REDIRECT=/PyScript/Pckgd?c=installed")  # This generally doesn't work, but we can dream.
+print("REDIRECT=/PyScript/SchedulerSyncer?a=installed")  # This generally doesn't work, but we can dream.
