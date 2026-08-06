@@ -1,8 +1,26 @@
+# Pckgd
+# Title: SchedulerSyncer
+# Description: Apply your scheduler volunteers to the places where they actually serve.
+# Updates from: GitHub/TenthPres/TouchPointScripts/SchedulerSyncer/SchedulerSyncer.py
+# Version: 1.0.0
+# License: AGPL-3.0
+# Author: James at Tenth
+# Editable: False
+
+# Do not make edits to this file.  They will be overwritten during updates.
+
+
 global model, q
 
 import json
 
+default_config = {
+    "config": [],
+    "assignments": {}
+}
+
 def get_scheduler_involvements():
+    # noinspection SqlResolve
     sql = """
     SELECT o.OrganizationId, 
            o.OrganizationName, 
@@ -23,59 +41,180 @@ def get_scheduler_involvements():
     return q.QuerySql(sql)
 
 
-def get_current_meetings():
+def process_queue():
     sql = """
-          SELECT o.OrganizationId,
-                 o.OrganizationName,
-                 oe_ap.BitValue as AssumePresent,
-                 oe_ae.BitValue as ApplyElsewhere,
-                 oe_ge.BitValue as AssignElsewhere
-          INTO #Orgs
-          FROM Organizations o
+          -- noinspection SqlResolve
+          SELECT
+              tsm.MeetingId as MeetingId,
+              tsmv.PeopleId as PeopleId,
+              tsm.MeetingDateTime as MeetingDate,
+              m.OrganizationId,
+
+              oe_ap.BitValue as AssumePresent,
+              oe_ae.BitValue as ApplyElsewhere,
+              oe_ge.BitValue as AssignElsewhere,
+
+              tsm.TimeSlotId as ScheduleId,
+              ts.DayOfWeek,
+              ts.TimeOfDay,
+
+              tsmv.TimeSlotTeamId as TeamId,
+              tst.TeamName,
+
+              mt.Id as GroupId,
+              mt.Name as GroupName,
+
+              a.AttendanceFlag
+
+          FROM TimeSlotMeetingVolunteers tsmv
+                   JOIN TimeSlotMeetings tsm ON tsmv.TimeSlotMeetingId = tsm.TimeSlotMeetingId
+                   LEFT JOIN TimeSlotTeams tst ON tsmv.TimeSlotTeamId = tst.TimeSlotTeamId
+                   JOIN TimeSlots ts ON tsm.TimeSlotId = ts.TimeSlotId AND 0 = ts.IsDeleted
+                   JOIN TimeSlotMeetingTeams tsmt ON tsmv.TimeSlotMeetingTeamId = tsmt.TimeSlotMeetingTeamId
+                   LEFT JOIN TimeSlotMeetingTeamSubGroups tsmtsg ON tsmv.TimeSlotMeetingTeamSubGroupId = tsmtsg.TimeSlotMeetingTeamSubGroupId
+                   LEFT JOIN MemberTags mt ON tsmtsg.MemberTagId = mt.Id
+                   JOIN Meetings m ON tsm.MeetingId = m.MeetingId
                    LEFT JOIN OrganizationExtra oe_ap
-                             ON o.OrganizationId = oe_ap.OrganizationId AND 'Bit' = oe_ap.Type AND 'Scheduler:AssumePresent' = oe_ap.field
+                             ON m.OrganizationId = oe_ap.OrganizationId AND 'Bit' = oe_ap.Type AND 'Scheduler:AssumePresent' = oe_ap.field
                    LEFT JOIN OrganizationExtra oe_ae
-                             ON o.OrganizationId = oe_ae.OrganizationId AND 'Bit' = oe_ae.Type AND 'Scheduler:ApplyElsewhere' = oe_ae.field
+                             ON m.OrganizationId = oe_ae.OrganizationId AND 'Bit' = oe_ae.Type AND 'Scheduler:ApplyElsewhere' = oe_ae.field
                    LEFT JOIN OrganizationExtra oe_ge
-                             ON o.OrganizationId = oe_ge.OrganizationId AND 'Bit' = oe_ge.Type AND 'Scheduler:AssignElsewhere' = oe_ge.field
-          WHERE o.RegistrationTypeId = 22
-            AND o.OrganizationStatusId = 30
+                             ON m.OrganizationId = oe_ge.OrganizationId AND 'Bit' = oe_ge.Type AND 'Scheduler:AssignElsewhere' = oe_ge.field
+                   LEFT JOIN Attend a
+                             ON m.MeetingId = a.MeetingId AND tsmv.PeopleId = a.PeopleId
+
+          WHERE tsmv.IsActive = 1
+            AND m.MeetingDate <= DATEADD(DAY, 1, GETDATE())
+            AND m.MeetingDate >= DATEADD(DAY, -0, GETDATE())
             AND (
               oe_ap.BitValue = 1
                   OR oe_ae.BitValue = 1
                   OR oe_ge.BitValue = 1
-              );
+              )
 
-          SELECT m.MeetingId,
-                 m.MeetingDate,
-                 o.OrganizationId
-          FROM Meetings m
-                   JOIN #Orgs o ON m.OrganizationId = o.OrganizationId
-          WHERE m.MeetingDate <= DATEADD(DAY, 7, GETDATE())
-            AND m.MeetingDate >= DATEADD(DAY, -0, GETDATE());
+          ORDER BY m.OrganizationId, tsm.MeetingDateTime, tsmv.TimeSlotTeamId, mt.Id;
           """
 
-    meetings = q.QuerySql(sql)
-    for m in meetings:
+    sched_entries = q.QuerySql(sql)
+    current_sched_meeting_id = 0
 
+    config = json.loads(model.TextContent('SchedulerSyncer.json')) or default_config
+    sched_config = None
 
+    current_assignments = []
 
+    for s in sched_entries:
 
+        # Handle the "Assume Present", which happens to be super easy.
+        if int(s.AssumePresent) == 1 and int(s.AttendanceFlag) != 1:
+            model.EditPersonAttendance(s.MeetingId, s.PeopleId, True)
 
+        # if not apply elsewhere or assign elsewhere, no need to continue in loop with slower pieces.
+        if int(s.ApplyElsewhere) != 1 and int(s.AssignElsewhere) != 1:
+            continue
 
-        o = {
-            "OrganizationId": getattr(m, "OrganizationId", None),
-            "OrganizationName": getattr(m, "OrganizationName", None),
-            "MeetingId": getattr(m, "MeetingId", None),
-        }
+        # Find the config for this scheduler involvement
+        if s.MeetingId != current_sched_meeting_id:
+            current_sched_meeting_id = s.MeetingId
+            sched_config = None
 
-        print(o)
+            for inv in config["config"]:
+                if _safe_int(inv.get("orgId")) == s.OrganizationId:
+                    sched_config = inv
+                    break
 
+        if sched_config is None:
+            print("ERROR: Config not found")
+            continue
 
+        # Find the target assignment.  schedule, team, group, are the keys in order.
+        assignment_key = []
 
+        if sched_config["criteria"]["bySchedule"]:
+            assignment_key.append("schedule:" + str(s.ScheduleId))
+
+        if sched_config["criteria"]["byTeam"]:
+            assignment_key.append("team:" + str(s.TeamId))
+
+        if sched_config["criteria"]["byGroup"]:
+            assignment_key.append("group:" + str(s.GroupId))
+
+        if len(assignment_key) > 0:
+            assignment_key = "|".join(assignment_key)
+        else:
+            assignment_key = "all"
+
+        # find target assignment
+        target_assignment = None
+        for a in sched_config["assignments"]:
+            if a["groupKey"] == assignment_key:
+                target_assignment = a
+                break
+
+        target_involvement = _safe_int(target_assignment['targetInvolvementId'])
+
+        if target_involvement is None or target_involvement == 0:
+            continue
+
+        # Assign Membership if needed
+        target_mem_type = _safe_int(target_assignment["memberTypeId"])
+        if s.AssignElsewhere and target_mem_type > 0:
+            # noinspection SqlResolve
+            sql = "SELECT om.memberTypeId FROM OrganizationMembers om WHERE om.PeopleId = {0} AND om.OrganizationId = {1}"
+            existing_mem_type = q.QuerySqlInt(sql.format(s.PeopleId, s.OrganizationId)) or 0
+
+            current_assn_key = "{}-{}".format(s.PeopleId, target_involvement)
+            if current_assn_key not in current_assignments:
+                current_assignments.append(current_assn_key)
+
+            if current_assn_key not in config["assignments"]:
+                config["assignments"][current_assn_key] = existing_mem_type
+
+            if not model.InOrg(s.PeopleId, target_involvement):
+                model.JoinOrg(target_involvement, s.PeopleId)
+
+            if target_mem_type != existing_mem_type:
+                model.SetMemberType(s.PeopleId, target_involvement, _get_memberType_string(target_mem_type))
+
+        # Find the target meeting
+        sql = """
+        -- noinspection SqlResolve
+        SELECT m.MeetingId
+        FROM Meetings m 
+        WHERE m.MeetingDate = '{0}'
+            AND m.OrganizationId = {1}
+        """.format(s.MeetingDate, target_assignment['targetInvolvementId'])
+
+        target_meeting = q.QuerySqlInt(sql)
+
+        # TODO revisit if appropriate to create a meeting if one doesn't already exist.
+        if target_meeting == 0 or target_meeting is None:
+            continue
+
+        if s.ApplyElsewhere:
+            if sched_config["attendanceStatus"] == "committed":
+                model.EditCommitment(target_meeting, s.PeopleId, "attending")
+
+            elif sched_config["attendanceStatus"] == "present":
+                model.EditPersonAttendance(target_meeting, s.PeopleId, True)
+
+    for assn in config["assignments"]:
+        if assn not in current_assignments:
+            [pid, oid] = assn.split("-")
+            pid = int(pid)
+            oid = int(oid)
+            mtid = int(config["assignments"][assn])
+
+            if mtid == 0:
+                model.DropOrgMember(pid, oid)
+            else:
+                model.SetMemberType(pid, oid, _get_memberType_string(mtid))
+
+    model.WriteContent("SchedulerSyncer.json", json.dumps(config, indent=2))
 
 def get_member_types():
     return q.QuerySql("""
+    -- noinspection SqlResolve
     SELECT Id, Description as Name
     FROM lookup.MemberType
     """)
@@ -114,6 +253,15 @@ def get_times_teams_and_groups(org_id):
     """.format(org_id)
 
     return q.QuerySql(sql)
+
+
+def _get_memberType_string(type_int):
+    return q.QuerySqlStr("""
+               -- noinspection SqlResolve
+               SELECT Description as Name
+               FROM lookup.MemberType
+                   WHERE ID = {}
+               """.format(type_int))
 
 
 def _to_bool(value):
@@ -178,7 +326,7 @@ def render_settings_interface():
             "name": member_type.Name
         })
 
-    config = json.loads(model.TextContent('SchedulerSyncing.json') or "[]")
+    json_conf = json.loads(model.TextContent('SchedulerSyncer.json') or "null") or default_config
 
     default_values = {
         "orgId": 0,
@@ -200,14 +348,14 @@ def render_settings_interface():
     # standardize values between SQL and JSON
     for inv in involvements:
         found = None
-        for ci in config:
+        for ci in json_conf["config"]:
             if ci.get("orgId") == inv.OrganizationId:
                 found = ci
                 break
 
         if found is None:
             found = default_values.copy()
-            config.append(found)
+            json_conf["config"].append(found)
 
         found["orgId"] = inv.OrganizationId
         found["orgName"] = inv.OrganizationName
@@ -231,11 +379,11 @@ def render_settings_interface():
         sql = "SELECT OrganizationName FROM Organizations WHERE OrganizationId = {}".format(int(iid))
         involvement_names_by_id[iid] = q.QuerySqlStr(sql)
 
-    for inv in config:
+    for inv in json_conf["config"]:
         for a in inv["assignments"]:
             a["targetInvolvementName"] = involvement_names_by_id.get(a.get("targetInvolvementId"), "")
 
-    involvements_json = json.dumps(config).replace("</", "<\\/")
+    involvements_json = json.dumps(json_conf["config"]).replace("</", "<\\/")
     member_types_json = json.dumps(member_type_list).replace("</", "<\\/")
 
     # language=HTML
@@ -707,7 +855,7 @@ def render_settings_interface():
                                }
                            }
                            if (self.byTeam()) {
-                               keyParts.push("team:" + String(sourceRow.teamName || ""));
+                               keyParts.push("team:" + String(sourceRow.timeSlotTeamId || ""));
                                if (sourceRow.teamName) {
                                    labelParts.push(sourceRow.teamName);
                                }
@@ -1161,22 +1309,14 @@ def render_settings_interface():
     html = html.replace("@@SCRIPT_NAME@@", model.ScriptName)
 
     print(html)
-    model.Title = "Scheduler Syncing Configuration"
+    model.Title = "Scheduler Syncer Configuration"
 
 
 def json_send(data):
     data = json.dumps(data)
     print(">>>>>>>>>>" + data + "<<<<<<<<<<")
 
-
-if model.Data.a == "groups":
-    org_id = _safe_int(getattr(model.Data, "orgId", None))
-    if org_id is None:
-        json_send({"error": "Invalid orgId", "rows": []})
-    else:
-        json_send(_build_groups_payload(org_id))
-
-elif model.HttpMethod == "post" and model.Data.a == "save":
+def process_save():
     config_json_text = getattr(model.Data, "configJson", "") or ""
     try:
         parsed = json.loads(config_json_text)
@@ -1231,14 +1371,28 @@ elif model.HttpMethod == "post" and model.Data.a == "save":
 
             config.append(clean_inv)
 
-        model.WriteContent("SchedulerSyncing.json", json.dumps(config, indent=2))
+        config_full = json.loads(model.TextContent('SchedulerSyncer.json')) or default_config
+        config_full["config"] = config
+
+        model.WriteContent("SchedulerSyncer.json", json.dumps(config_full, indent=2))
         json_send({
             "success": True,
             "config": config
         })
 
+
+if model.Data.a == "groups":
+    org_id = _safe_int(getattr(model.Data, "orgId", None))
+    if org_id is None:
+        json_send({"error": "Invalid orgId", "rows": []})
+    else:
+        json_send(_build_groups_payload(org_id))
+
+elif model.HttpMethod == "post" and model.Data.a == "save":
+    process_save()
+
 elif model.Data.a == "process":
-    get_current_meetings()
+    process_queue()
 
 else:
     render_settings_interface()

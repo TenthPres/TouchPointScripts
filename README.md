@@ -83,6 +83,9 @@ AcctTwo, our accounting firm.
 
 - [**Scheduler**](Scheduler) - A few scripts to fill gaps in getting data out of the Volunteer Scheduler. 
 
+- [**Scheduler Syncer**](SchedulerSyncer) - Volunteers can sign up in the scheduler, and then automatically be made 
+  leaders of the involvements where they actually serve. 
+
 - [**Vital Stats Widget** *With Bars!*](VitalStatsWidget) - Add a subtle bar chart to your Vital Stats widget. 
 
 ## Tools Under Development
