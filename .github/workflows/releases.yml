@@ -32,3 +32,4 @@ jobs:
             .Builds/TuitionAutomation.zip
             .Builds/NonweeklyMeetings.zip
             .Builds/Pckgd.zip
+            .Builds/SchedulerSyncer.zip
