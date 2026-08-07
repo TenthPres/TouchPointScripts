@@ -2,7 +2,7 @@
 # Title: SchedulerSyncer
 # Description: Apply your scheduler volunteers to the places where they actually serve.
 # Updates from: GitHub/TenthPres/TouchPointScripts/SchedulerSyncer/SchedulerSyncer.py
-# Version: 1.0.1
+# Version: 1.0.2
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -84,7 +84,7 @@ def process_queue():
                              ON m.MeetingId = a.MeetingId AND tsmv.PeopleId = a.PeopleId
 
           WHERE tsmv.IsActive = 1
-            AND m.MeetingDate <= DATEADD(HOUR, 6, GETDATE())
+            AND m.MeetingDate <= DATEADD(HOUR, 4, GETDATE())
             AND m.MeetingDate >= DATEADD(HOUR, -4, GETDATE())
             AND (
               oe_ap.BitValue = 1
@@ -198,6 +198,8 @@ def process_queue():
             elif sched_config["attendanceStatus"] == "present":
                 model.EditPersonAttendance(target_meeting, s.PeopleId, True)
 
+    assns_to_pop = []
+
     for assn in config["assignments"]:
         if assn not in current_assignments:
             [pid, oid] = assn.split("-")
@@ -210,7 +212,10 @@ def process_queue():
             else:
                 model.SetMemberType(pid, oid, _get_memberType_string(mtid))
 
-            config["assignments"].pop(assn)
+            assns_to_pop.append(assn)
+
+    for assn in assns_to_pop:
+        config["assignments"].pop(assn)
 
     model.WriteContent("SchedulerSyncer.json", json.dumps(config, indent=2))
 
