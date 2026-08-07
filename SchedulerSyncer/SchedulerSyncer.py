@@ -2,7 +2,7 @@
 # Title: SchedulerSyncer
 # Description: Apply your scheduler volunteers to the places where they actually serve.
 # Updates from: GitHub/TenthPres/TouchPointScripts/SchedulerSyncer/SchedulerSyncer.py
-# Version: 1.0.0
+# Version: 1.0.1
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -1393,7 +1393,7 @@ if model.Data.a == "groups":
 elif model.HttpMethod == "post" and model.Data.a == "save":
     process_save()
 
-elif model.Data.a == "process" or model.Data.SchedulerSyncerCaller != "":
+elif model.Data.a == "process" or model.Data.ScheduledTime != '' or model.FromMorningBatch:
     process_queue()
 
 else:
