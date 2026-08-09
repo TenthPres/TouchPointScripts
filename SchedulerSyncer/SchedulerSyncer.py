@@ -2,7 +2,7 @@
 # Title: SchedulerSyncer
 # Description: Apply your scheduler volunteers to the places where they actually serve.
 # Updates from: GitHub/TenthPres/TouchPointScripts/SchedulerSyncer/SchedulerSyncer.py
-# Version: 1.0.2
+# Version: 1.0.3
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -150,6 +150,9 @@ def process_queue():
             if a["groupKey"] == assignment_key:
                 target_assignment = a
                 break
+
+        if target_assignment is None:
+            continue
 
         target_involvement = _safe_int(target_assignment['targetInvolvementId'])
 
