@@ -632,8 +632,8 @@ sql = """
           People p
       WHERE p.MemberStatusId = 10
         AND p.Age > 20
-        AND p.Age < 40 \
-      """.format(dStart, dEnd)
+        AND p.Age < 40
+""".format(dStart, dEnd)
 print("<tr><td>{}</td><td>{}</td></tr>".format(stat, q.QuerySqlInt(sql)))
 
 
@@ -658,7 +658,7 @@ print("<tr><td>{}</td><td>{}</td></tr>".format(stat, q.QuerySqlInt(sql)))
 # Block Party Attendance
 stat = "Attended Block Party"
 sql = """
-  SELECT 
+  SELECT
     SUM(m.MaxCount) AS [Count]
 INTO #stat
 FROM Meetings m
@@ -734,6 +734,26 @@ AND MemberStatusId = 10[Communicant Member]
 """.format(dStart, dEnd)
 print("<tr><td>{}</td><td>{}</td></tr>".format(stat, q.QueryCount(query)))
 
+
+
+
+print("<tr><td colspan=\"2\"><h2>Operations</h2></td></tr>")
+
+
+
+
+
+# Meetings
+stat = "Events"
+sql = """
+    SELECT COUNT(*) FROM Meetings m
+    WHERE m.MeetingDate > DATEADD(YEAR, -1, GETDATE())
+        AND m.MeetingDate < '{1}'
+        AND m.MeetingDate >= '{0}'
+        AND m.DidNotMeet = 0
+        AND m.Canceled = 0
+    """.format(dStart, dEnd)
+print("<tr><td>{}</td><td>{}</td></tr>".format(stat, q.QuerySqlInt(sql)))
 
 
 
