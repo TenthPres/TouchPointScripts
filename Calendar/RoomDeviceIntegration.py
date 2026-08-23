@@ -90,7 +90,7 @@ def get_config():
     global _existing_config
 
     if _existing_config is None:
-        _existing_config = model.TextContent("IntegrationDeviceConfig.json") or "{}"
+        _existing_config = model.TextContent("RoomDeviceConfiguration.json") or "{}"
         _existing_config = json.loads(_existing_config)
 
     return _existing_config
@@ -157,12 +157,12 @@ def get_local_events(did):
                                    MIN(DATEADD(MINUTE, {1}, r.ReservationStart)) as DeviceStart,
                                    MAX(DATEADD(MINUTE, {2}, r.ReservationEnd)) as DeviceEnd
                             FROM Reservations r
-                            WHERE r.ReservationEnd > GETDATE()
+                            WHERE r.ReservationEnd > DATEADD(DAY, -1, GETDATE())
                               AND r.ReservationStart < DATEADD(DAY, 7, GETDATE())
                               AND r.ReservableId IN ({0})
                             GROUP BY r.MeetingId
                         )
-                        SELECT r.*, COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name, m.* 
+                        SELECT r.*, COALESCE(NULLIF(m.Description, ''), o.OrganizationName) as Name, m.*
                         FROM Reses r
                             JOIN Meetings m ON r.MeetingId = m.MeetingId
                             JOIN Organizations o ON m.OrganizationId = o.OrganizationId
@@ -308,9 +308,9 @@ def get_device_config_form(did, title, device_config):
     <div class="well col-sm-6 col-md-4 col-lg-3">
     <fieldset>
         <legend>{0}</legend>
-        
+
         {1}
-    
+
     </fieldset>
     </div>
     """.format(title, '\n'.join(settings))
@@ -364,7 +364,7 @@ def handle_matrix_save():
     for did in devices_to_remove:
         del config['devices']['pelican'][did]
 
-    model.WriteContentText("IntegrationDeviceConfig.json", json.dumps(config, indent=4))
+    model.WriteContentText("RoomDeviceConfiguration.json", json.dumps(config, indent=4))
 
 def get_schedule_diffs():
 
@@ -393,7 +393,9 @@ def get_schedule_diffs():
                     events_to_add.append(te)
                 else:
                     # compare details
-                    for key in get_device_config_defaults().keys():
+                    for key in te.keys():
+                        if key == 'outsideVentilation':  # not always supported
+                            continue
                         if str(match.get(key, '')) != str(te.get(key, '')):
                             events_to_remove.append(match)
                             events_to_add.append(te)
@@ -673,6 +675,18 @@ elif Data.v == "status":
 
     from pprint import pprint
     pprint(get_schedule_diffs())
+
+
+elif Data.RoomDevicerCaller == "ScheduledTasks":
+
+    config = get_config()
+
+    if 'devices' in config and 'pelican' in config['devices']:
+        devices = config['devices']['pelican']
+    else:
+        devices = {}
+
+    apply_schedule_changes()
 
 else:
     print("REDIRECT=/PyScript/RoomDeviceIntegration?v=status")
