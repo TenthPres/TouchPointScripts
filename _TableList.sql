@@ -1,3 +1,9 @@
+-- Pckgd
+-- Title: Table List
+-- Description: Provides a list of the tables in the database and some basic information about them.
+-- Updates from: GitHub/TenthPres/TouchPointScripts/_TableList.sql
+-- Author: James at Tenth
+
 SELECT
     SCHEMA_NAME(t.schema_id) AS SchemaName,
     t.NAME AS TableName,
