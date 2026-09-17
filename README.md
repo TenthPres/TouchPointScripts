@@ -106,6 +106,10 @@ TouchPoint and vice versa).
 - [**Tuition Automation**](TuitionAutomation) - Automatically calculate and bill tuition for ongoing programs (e.g. 
   preschool).
 
+- [**TrueNCOA / TrueDeceased Checks**](TrueNCOA) - Export people from TouchPoint for National Change of Address 
+  (NCOA) and deceased-record checks against TrueNCOA and TrueDeceased, then import their results back in as review 
+  Tasks so staff can confirm moves or deaths before anyone's record is changed.
+
 ## Tools No Longer Necessary
 Occasionally, the TouchPoint team redevelops tools we've created in Python as genuine features in the main TouchPoint system.  When that happens,
 our OG tool becomes unnecessary.  But, for posterity, here are those tools:
