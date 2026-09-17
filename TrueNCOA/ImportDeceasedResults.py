@@ -2,11 +2,11 @@
 
 # Import Deceased Results from TrueDeceased (or TrueNCOA's Deceased Identification add-on)
 #
-# After you've uploaded the file from ExportForNCOA.py to TrueDeceased (https://truedeceased.com), or run TrueNCOA's
-# Deceased Identification (DI) service on it, download the results/match file and paste its full contents --
-# including the header row -- into the box this script shows you.
+# After you've uploaded the file from ExportForDeceasedCheck.py to TrueDeceased (https://truedeceased.com), or run
+# TrueNCOA's Deceased Identification (DI) service on it, download the results/match file and paste its full
+# contents -- including the header row -- into the box this script shows you.
 #
-# Like ImportNCOAResults.py, this looks for header cells that *contain* one of the keywords below rather than
+# Like CheckNCOAStatus.py, this looks for header cells that *contain* one of the keywords below rather than
 # requiring an exact column name match, since the exact names depend on your account setup. If it can't find a
 # PeopleId column, it will tell you so you can add the right keyword below and try again.
 #
