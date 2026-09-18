@@ -47,6 +47,34 @@ one that waits around:
   check progress -- e.g. once a day. Advances each submitted file one step (still processing / trigger export /
   export still running / download and import), and creates a review Task on anyone the results flag as having
   moved.
+- **[Install.py](Install.py)** -- run once, after the two scripts above already exist as Special Content
+  documents. Adds `CheckNCOAStatus` to TouchPoint's Morning Batch (the same mechanism
+  [SchedulerSyncer](../SchedulerSyncer), [Mapify](../Mapify), and [NonweeklyMeetings](../NonweeklyMeetings) use to
+  run themselves daily) so it checks -- and re-checks -- automatically, with no one needing to remember to run it.
+
+### Taking advantage of TrueNCOA's free re-checks
+
+TrueNCOA automatically keeps re-processing your file against new NCOA moves for a while after you submit it --
+their site calls this "free weekly NCOA updates," and says it's free for 90-95 days for accounts with
+501(c)(3) status (most churches qualify) as of a 5/1/2023 policy change. Rather than relying on a staff member
+noticing TrueNCOA's notification emails and downloading updates by hand, `CheckNCOAStatus.py` keeps a submitted
+file in a "watching" state and re-exports/re-checks it once a day (via Install.py's Morning Batch hook) for
+`freeUpdateWindowDays` (90, by default) from its submission date, creating a Task for anything newly flagged.
+Re-checking is safe to repeat since the per-person dedupe (`TrueNCOA:LastMoveImport`) means only genuinely new
+matches ever create a new Task.
+
+That said, *how* TrueNCOA's backend actually surfaces those free re-checks wasn't something the CLI source (or
+anything else reachable while writing this) confirmed. Their own docs describe the update as showing up as a
+separately-named file in their portal (e.g. `your file name - Updated 20260101`) that you'd otherwise find by
+hand, rather than the original file's export simply reflecting new data when you ask for it again. If, after
+running for a while, `CheckNCOAStatus.py` never reports new moves but TrueNCOA's portal or notification emails
+show update files it isn't picking up, that's the mechanism actually in play -- check with TrueNCOA support for
+how those update files are named/addressed via the API, and adjust `triggerExport()`/`downloadRecords()` in
+`CheckNCOAStatus.py` to fetch that file instead of (or in addition to) re-exporting the original.
+
+Submitting a *new* file (a new NCOA processing charge, per TrueNCOA's pricing) is still a manual, deliberate
+action -- run `SubmitToNCOA` again from the Blue Toolbar whenever you want a fresh full check, e.g. for people who
+weren't part of an earlier submission.
 
 One caveat: this repo hasn't needed to make an HTTP `PATCH` request anywhere else, so `model.RestPatch` (used for
 the `status=submit` and `status=export` calls) isn't a confirmed part of TouchPoint's Python Script API the way
@@ -77,28 +105,34 @@ loop instead:
 
 ## How to Install
 
-1. In the Special Content section of TouchPoint, create four new **Python Script** documents --
-   `SubmitToNCOA`, `CheckNCOAStatus`, `ExportForDeceasedCheck`, and `ImportDeceasedResults` (or whatever names you
-   prefer) -- and paste in the matching file from this folder.
-2. Restrict all four to the Admin role (or whichever role should be trusted with everyone's mailing address --
+1. In the Special Content section of TouchPoint, create five new **Python Script** documents --
+   `SubmitToNCOA`, `CheckNCOAStatus`, `Install`, `ExportForDeceasedCheck`, and `ImportDeceasedResults` (or
+   whatever names you prefer, as long as `SubmitToNCOA.py`/`CheckNCOAStatus.py`/`Install.py` keep matching the
+   `model.CallScript(...)` names inside each other) -- and paste in the matching file from this folder.
+2. Restrict all of them to the Admin role (or whichever role should be trusted with everyone's mailing address --
    the `#Roles=Admin` line at the top of each script is TouchPoint's own role-restriction directive).
 3. Fill in your TrueNCOA account email/password at the top of `SubmitToNCOA.py` and `CheckNCOAStatus.py` (keep
    the two in sync). Start with `https://api.testing.truencoa.com/` as the base URL until you've confirmed things
    work.
 4. Add `SubmitToNCOA` and `ExportForDeceasedCheck` to the Blue Toolbar's "Other Reports" / Python Script menu so
    they're available from any Search.
+5. Run `Install` once (it adds `CheckNCOAStatus` to the Morning Batch, then runs it immediately).
 
 ## How to Run
 
 1. Build a Search (or other people list) in TouchPoint for whoever you want checked -- e.g. "everyone with an
    address, not already flagged Deceased."
-2. For an NCOA move check: run `SubmitToNCOA` from the Blue Toolbar, then run `CheckNCOAStatus` directly (whenever
-   convenient -- it's safe to re-run; it just reports "still processing" until TrueNCOA is done). Once it reports
-   results imported, work the review Tasks it created.
+2. For an NCOA move check: run `SubmitToNCOA` from the Blue Toolbar. From there, Morning Batch runs
+   `CheckNCOAStatus` automatically every day (once `Install` has been run) -- it reports "still processing" until
+   TrueNCOA is done, then imports results and keeps re-checking for new moves during TrueNCOA's free-update
+   window (see above), all without anyone needing to run anything by hand. You can also run `CheckNCOAStatus`
+   directly any time you don't want to wait for the next Morning Batch. Either way, work the review Tasks it
+   creates.
 3. For a deceased check: run `ExportForDeceasedCheck` from the Blue Toolbar and download the CSV, upload it to
    TrueDeceased (or run TrueNCOA's Deceased Identification add-on on it) through their own portal, and once
    processing is done, run `ImportDeceasedResults` and paste in the results file. Work the review Tasks it
-   created.
+   created. (TrueDeceased processes weekly on its own, but since this script doesn't have its API to check
+   automatically, this half stays manual.)
 4. Either way: nothing in TouchPoint changes until a staff member confirms the Task and updates the person's
    record by hand.
 

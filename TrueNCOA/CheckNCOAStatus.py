@@ -2,13 +2,28 @@
 
 # Check TrueNCOA Processing Status, Export, and Import Results
 #
-# Run this periodically (visit its Special Content page directly -- it's not a Blue Toolbar report) after
-# running SubmitToNCOA.py. Each time it runs, it looks at every file SubmitToNCOA.py has submitted and advances
-# it one step:
+# Run this periodically after running SubmitToNCOA.py -- or better, run Install.py once so it's added to
+# TouchPoint's Morning Batch and checks itself automatically every day. Each time it runs, it looks at every file
+# SubmitToNCOA.py has submitted and advances it one step:
 #   - Still processing on TrueNCOA's side? Reports that and does nothing else yet.
 #   - Finished NCOA processing ("Processed")? Triggers TrueNCOA's export step.
 #   - Export still running? Reports that and does nothing else yet.
 #   - Export finished? Downloads the results and creates a review Task on anyone flagged as having moved.
+#
+# TrueNCOA automatically keeps re-checking your file against new NCOA moves for a while after you submit it (its
+# own site calls this "free weekly NCOA updates," advertised as free for 90-95 days for accounts with 501(c)(3)
+# status -- see https://truencoa.com/keep-your-addresses-up-to-date-with-free-weekly-ncoa-updates/). To take
+# advantage of that automatically instead of relying on someone noticing TrueNCOA's notification emails, this
+# script doesn't stop after the first import: it keeps re-exporting and re-checking the same file once a day
+# (whenever Morning Batch runs it) until freeUpdateWindowDays has passed since it was submitted. Re-checking is
+# safe to repeat -- the per-person dedupe below means only genuinely new matches create a new Task.
+#
+# Whether re-running TrueNCOA's export step on an already-processed file is really how their backend surfaces
+# those free re-checks isn't confirmed (TrueNCOA's own docs describe the update showing up as a separately named
+# file you'd otherwise find by hand in their portal, e.g. "your file name - Updated 20260101"). If, after this
+# has been running a while, you notice TrueNCOA's portal has update files this script isn't picking up, that's
+# the mechanism it's actually using -- check with TrueNCOA support and adjust triggerExport()/downloadRecords()
+# accordingly.
 #
 # This follows the same HTTP API TrueNCOA's own CLI tool uses -- see https://github.com/truencoa/cli (Program.cs)
 # for the reference implementation this is based on, since TrueNCOA's account-specific Postman/API docs weren't
@@ -22,6 +37,7 @@
 
 import json
 import urllib
+from datetime import datetime, timedelta
 
 # ##################### #
 # Configuration -- keep the credentials in sync with SubmitToNCOA.py
@@ -42,11 +58,18 @@ suppressNonMovers = False
 # TrueNCOA how downloads are billed; if downloads come back empty, this may need to be True instead.
 allowCharge = False
 
-# Who the review tasks get assigned to. Defaults to whoever runs this script.
+# Who the review tasks get assigned to. Defaults to whoever runs this script. If Morning Batch is running this
+# script automatically (see Install.py), model.UserPeopleId won't be a real staff member -- set this to a
+# specific PeopleId instead.
 taskOwnerPid = model.UserPeopleId
 
 # Extra Value used per-person to avoid creating a duplicate task for a record we've already imported.
 lastImportEv = "TrueNCOA:LastMoveImport"
+
+# How many days after submitting a file to keep automatically re-checking it for new moves, taking advantage of
+# TrueNCOA's free re-check window. TrueNCOA's own pages say 90-95 days for accounts with 501(c)(3) status (most
+# churches qualify); 90 is used here to stay safely inside that. After this many days, a file is left alone.
+freeUpdateWindowDays = 90
 
 # NOTE: model.RestPatch is used below for the HTTP PATCH calls TrueNCOA's API requires. This repo hasn't needed
 # a PATCH call anywhere else, so it's not confirmed that TouchPoint's Python Script API actually exposes a
@@ -115,6 +138,14 @@ def firstNonEmpty(record, keys):
     return ""
 
 
+def freeUpdatesExpired(fileEntry):
+    submittedDate = fileEntry.get("submittedDate")
+    if not submittedDate:
+        return True
+    submitted = datetime.strptime(submittedDate, "%Y-%m-%d %H:%M:%S")
+    return datetime.now() > submitted + timedelta(days=freeUpdateWindowDays)
+
+
 def importRecords(fileEntry, records):
     flagged = 0
     createdTasks = 0
@@ -170,13 +201,20 @@ def importRecords(fileEntry, records):
         model.AddExtraValueText(pid, lastImportEv, dedupeKey)
         createdTasks += 1
 
-    fileEntry["status"] = "imported"
-    fileEntry["importSummary"] = {
-        "flagged": flagged,
-        "createdTasks": createdTasks,
-        "alreadyHandled": alreadyHandled,
-        "notFound": notFound,
-    }
+    # Cumulative across every check of this file, not just this run, since a file gets re-checked repeatedly
+    # during its free-update window.
+    summary = fileEntry.setdefault("importSummary", {
+        "flagged": 0, "createdTasks": 0, "alreadyHandled": 0, "notFound": [],
+    })
+    summary["flagged"] += flagged
+    summary["createdTasks"] += createdTasks
+    summary["alreadyHandled"] += alreadyHandled
+    summary["notFound"] = sorted(set(summary.get("notFound", []) + notFound))
+
+    fileEntry["status"] = "watching" if not freeUpdatesExpired(fileEntry) else "completed"
+    fileEntry["lastCheckedDate"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    return createdTasks
 
 
 registry = loadRegistry()
@@ -190,27 +228,46 @@ else:
         fileName = fileEntry.get("fileName", "?")
         submittedDate = fileEntry.get("submittedDate", "")
         recordCount = fileEntry.get("recordCount", "")
+        status = fileEntry.get("status")
 
-        if fileEntry.get("status") == "imported":
+        if status == "completed":
             summary = fileEntry.get("importSummary", {})
-            print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>Already imported ({3} flagged, {4} tasks created)</td></tr>".format(
-                fileName, submittedDate, recordCount, summary.get("flagged", "?"), summary.get("createdTasks", "?"))
+            print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>Free update window closed ({3} flagged, " \
+                  "{4} tasks created in total)</td></tr>".format(
+                      fileName, submittedDate, recordCount, summary.get("flagged", 0), summary.get("createdTasks", 0))
+            continue
+
+        if status in ("cancelled", "errored"):
+            print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>TrueNCOA reported this file {3}</td></tr>".format(
+                fileName, submittedDate, recordCount, status)
             continue
 
         try:
-            if fileEntry.get("status") != "exporting":
-                info = getFile(fileName)
-                status = info.get("Status")
-
-                if status in ("Cancelled", "Errored"):
-                    fileEntry["status"] = status.lower()
-                    print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>TrueNCOA reports this file {3}</td></tr>".format(
-                        fileName, submittedDate, recordCount, status)
+            if status == "watching":
+                if freeUpdatesExpired(fileEntry):
+                    fileEntry["status"] = "completed"
+                    summary = fileEntry.get("importSummary", {})
+                    print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>Free update window just closed " \
+                          "({3} flagged, {4} tasks created in total)</td></tr>".format(
+                              fileName, submittedDate, recordCount, summary.get("flagged", 0),
+                              summary.get("createdTasks", 0))
                     continue
 
-                if status != "Processed":
+                triggerExport(fileEntry)
+
+            elif status != "exporting":
+                info = getFile(fileName)
+                ncoaStatus = info.get("Status")
+
+                if ncoaStatus in ("Cancelled", "Errored"):
+                    fileEntry["status"] = ncoaStatus.lower()
+                    print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>TrueNCOA reports this file {3}</td></tr>".format(
+                        fileName, submittedDate, recordCount, ncoaStatus)
+                    continue
+
+                if ncoaStatus != "Processed":
                     print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>Still {3} on TrueNCOA's side, check back later</td></tr>".format(
-                        fileName, submittedDate, recordCount, status)
+                        fileName, submittedDate, recordCount, ncoaStatus)
                     continue
 
                 triggerExport(fileEntry)
@@ -224,11 +281,14 @@ else:
                 continue
 
             records = downloadRecords(fileEntry["exportFileId"])
-            importRecords(fileEntry, records)
+            newTasksThisCheck = importRecords(fileEntry, records)
             summary = fileEntry["importSummary"]
 
-            print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>Imported: {3} flagged, {4} review tasks created</td></tr>".format(
-                fileName, submittedDate, recordCount, summary["flagged"], summary["createdTasks"])
+            stillWatching = fileEntry["status"] == "watching"
+            print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>Checked: {3} new review task(s) this time " \
+                  "({4} total). {5}</td></tr>".format(
+                      fileName, submittedDate, recordCount, newTasksThisCheck, summary["createdTasks"],
+                      "Still watching for new moves." if stillWatching else "Free update window now closed.")
 
         except Exception as ex:
             print "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>Error checking this file: {3}</td></tr>".format(

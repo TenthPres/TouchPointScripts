@@ -14,7 +14,9 @@
 # NCOA processing takes a while and happens on TrueNCOA's side, so this script doesn't wait around for it. It
 # saves what it submitted to a small tracking file (see registryContentName below) so CheckNCOAStatus.py knows
 # what to check on later, and can pick up the rest of the process (export, download, and creating review Tasks)
-# whenever you run it.
+# whenever you run it -- including TrueNCOA's free re-checks for new moves over the following ~90 days. Run
+# Install.py once so that happens automatically as part of TouchPoint's Morning Batch, instead of needing someone
+# to remember to run CheckNCOAStatus.py by hand.
 #
 # TrueDeceased (https://truedeceased.com) is a related but separate product with its own account/portal, and
 # doesn't appear to be part of TrueNCOA's API/CLI, so it isn't handled by this script. See
