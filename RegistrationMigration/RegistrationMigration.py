@@ -35,22 +35,34 @@
 # This does NOT flip the Involvement to Registration Form type -- do that separately with
 # model.SetOrgRegistrationType once you've reviewed the result (see ValidateRegistrationMigration.sql).
 
+import json
+import math
+import re
+
 from System.Xml.Linq import XElement
 
 REGISTRATION_FORM_TYPE = 26
 
 # --- Settings translation (Organizations.RegSettingXml -> Organizations.Reg* columns) -------------
 
+# RegSettingXml is NOT flat: apart from <AskItems>, every setting sits inside a group element --
+# <Confirmation>, <Instructions>, <Fees>, <Options> or <NotRequired> (see Settings.ReadXml in
+# CmsData/RegistrationModels/ReadWriteXml.cs). Always read settings through setting_text / setting_flag,
+# which take the group: a root-level lookup silently finds nothing.
+# (group, element) -> (new Organizations column, conversion)
 SETTINGS_FIELD_MAP = {
-    "Deposit": ("RegDepositAmount", float),
-    "IncludeOtherFeesWithDeposit": ("RegDepositIncludesOtherFees", lambda v: v.lower() == "true"),
-    "ApplyMaxToOtherFees": ("RegMaxFeeAppliesToOtherFees", lambda v: v.lower() == "true"),
-    "HoursBeforeTicketSalesEnd": ("RegHoursBeforeTicketSalesEnd", int),
-    "Subject": ("RegMessageConfirmationEmailSubject", str),
-    "InstructionSorry": ("RegMessageClosed", str),
-    "ThankYouMessage": ("RegMessageConfirmationPage", str),
-    "OnEnrollScript": ("OnEnrollScript", str),
+    ("Fees", "Deposit"): ("RegDepositAmount", float),
+    ("Fees", "IncludeOtherFeesWithDeposit"): ("RegDepositIncludesOtherFees", lambda v: v.lower() == "true"),
+    ("Fees", "ApplyMaxToOtherFees"): ("RegMaxFeeAppliesToOtherFees", lambda v: v.lower() == "true"),
+    ("Options", "HoursBeforeTicketSalesEnd"): ("RegHoursBeforeTicketSalesEnd", int),
+    ("Confirmation", "Subject"): ("RegMessageConfirmationEmailSubject", str),
+    ("Instructions", "Sorry"): ("RegMessageClosed", str),
+    ("Instructions", "Thanks"): ("RegMessageConfirmationPage", str),
+    ("Options", "OnEnrollScript"): ("OnEnrollScript", str),
 }
+
+# The old form never sent the confirmation email when its subject was exactly this.
+NO_CONFIRMATION_EMAIL_SUBJECT = "DO NOT SEND"
 
 
 def xml_text(root, name):
@@ -60,10 +72,29 @@ def xml_text(root, name):
     return el.Value
 
 
-def find_account_code_id(code):
-    if not code:
+def setting_text(root, group, name):
+    """A setting's text from RegSettingXml: <group><name>text</name></group>, or None if absent/empty."""
+    if root is None:
         return None
-    row = q.QuerySqlTop1("select Id from AccountCodes where Code = '%s'" % code.replace("'", "''"))
+    group_el = root.Element(group)
+    return xml_text(group_el, name) if group_el is not None else None
+
+
+def setting_flag(root, group, name):
+    return (setting_text(root, group, name) or "").lower() == "true"
+
+
+def find_account_code_id(value):
+    """Settings.AccountingCode holds the AccountCodes row's Id as text (the old editor stores the chosen
+    code's Id); older settings may instead hold the code itself, so fall back to matching on Code."""
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        row = q.QuerySqlTop1("select Id from AccountCodes where Id = %d" % int(value))
+        if row:
+            return row.Id
+    row = q.QuerySqlTop1("select Id from AccountCodes where Code = '%s'" % value.replace("'", "''"))
     return row.Id if row else None
 
 
@@ -84,35 +115,312 @@ def get_legacy_settings_xml(org_id):
     return row.RegSettingXml
 
 
+def to_number(text, default=0.0):
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return default
+
+
+def shorten(text, length=60):
+    text = " ".join((text or "").split())
+    return text if len(text) <= length else text[:length - 3] + "..."
+
+
+def child_elements(root, group, name):
+    group_el = root.Element(group) if root is not None else None
+    return list(group_el.Elements(name)) if group_el is not None else []
+
+
+def ask_types_present(root):
+    """The element names of this form's enabled AskItems (e.g. 'AskSuggestedFee', 'AskTickets')."""
+    ask_items = root.Element("AskItems") if root is not None else None
+    if ask_items is None:
+        return set()
+    present = set()
+    for ele in ask_items.Elements():
+        disabled = ele.Attribute("Disabled")
+        if disabled is None or disabled.Value.lower() != "true":
+            present.add(ele.Name.LocalName)
+    return present
+
+
+def unlayer_body(html):
+    """The Registration Form stores an email body as the JSON of its email designer, not as raw HTML;
+    a raw-HTML body is read as empty and sends a blank email. Text that already is designer JSON is kept."""
+    if html.lstrip().startswith("{"):
+        try:
+            if "rawHtml" in json.loads(html):
+                return html
+        except ValueError:
+            pass
+    return json.dumps({"design": None, "rawHtml": html})
+
+
+# Replacement codes the new emails don't support, or render differently, so the preview can warn about
+# any left in a migrated message (see RegistrationReplacements.cs and the email engine).
+UNSUPPORTED_EMAIL_CODES = ("{division}", "{phone}", "{donation}", "{ev:")
+DIFFERENT_EMAIL_CODES = ("{paylink}", "{details}")
+
+
+def email_code_warnings(label, text, warnings):
+    lowered = (text or "").lower()
+    unsupported = [code for code in UNSUPPORTED_EMAIL_CODES if code in lowered]
+    different = [code for code in DIFFERENT_EMAIL_CODES if code in lowered]
+    if unsupported:
+        warnings.append("%s uses replacement code(s) the new form doesn't support: %s" % (label, ", ".join(unsupported)))
+    if different:
+        warnings.append("%s uses replacement code(s) that render differently in the new form: %s" % (label, ", ".join(different)))
+
+
+def translate_fees(root, org, settings, warnings):
+    ask_types = ask_types_present(root)
+    base_fee = to_number(setting_text(root, "Fees", "Fee"))
+    extra_fee = to_number(setting_text(root, "Fees", "ExtraFee"))
+    max_fee = to_number(setting_text(root, "Fees", "MaximumFee"))
+
+    age_groups = child_elements(root, "AgeGroups", "Group")
+    org_fees = child_elements(root, "OrgFees", "Fee")
+
+    if age_groups:
+        warnings.append("Age-based fees (%d age group(s)) have no equivalent. The base fee was NOT migrated, or everyone "
+                        "would be charged it; set the fee by hand." % len(age_groups))
+    elif "AskSuggestedFee" in ask_types:
+        warnings.append("This form used a suggested-fee question, which replaced the base fee in the old form. The base fee "
+                        "was NOT migrated (the new form would add it on top of the suggested fee).")
+    elif base_fee > 0 or extra_fee > 0:
+        # The old form added ExtraFee to the fee after LastDayBeforeExtra + 24h, or always if there was no date.
+        if extra_fee > 0 and org is not None and org.LastDayBeforeExtra is not None:
+            settings["RegFeePerPerson"] = base_fee
+            settings["RegFeeChange"] = extra_fee
+            settings["RegFeeChangeDate"] = org.LastDayBeforeExtra.AddHours(24)
+        else:
+            settings["RegFeePerPerson"] = base_fee + extra_fee
+            if extra_fee > 0:
+                warnings.append("The extra fee had no date, so the old form always charged it; it was added into the base fee.")
+    if "AskTickets" in ask_types and base_fee > 0:
+        warnings.append("The old form multiplied the fee by the number of tickets requested; the new form has no equivalent.")
+
+    if max_fee > 0:
+        settings["RegMaxFee"] = max_fee  # never 0: a zero maximum would zero every fee
+
+    if org_fees:
+        entries = ", ".join("involvement %s: $%s" % (fee.Attribute("OrgId").Value if fee.Attribute("OrgId") is not None else "?",
+                                                      fee.Attribute("Fee").Value if fee.Attribute("Fee") is not None else "?")
+                            for fee in org_fees)
+        warnings.append("Involvement-based fees were NOT migrated (the old form REPLACED the fee with the lowest match; the "
+                        "new form ADDS every match): %s" % entries)
+
+    settings["RegDiscountCodes"] = setting_flag(root, "Fees", "ShowDiscountCodes")
+
+    if setting_flag(root, "Fees", "ChargeServiceFee"):
+        warnings.append("This form charged its own service fee (%s%% + $%s per person/ticket). The new form's processing-fee "
+                        "option works differently and was left off; adjust it by hand if you want it." % (
+                            setting_text(root, "Fees", "PercentagePerOrder") or "0",
+                            setting_text(root, "Fees", "PerPersonOrTicket") or "0"))
+
+
+def translate_access(root, org, settings, warnings):
+    """Who may register, and how: sign-in, member-only and involvement-membership rules."""
+    require_sign_in = []
+    if setting_flag(root, "Options", "DisallowAnonymous"):
+        require_sign_in.append("disallow anonymous")
+
+    if setting_flag(root, "Options", "MemberOnly"):
+        settings["RegRequireMemberStatus"] = "10"  # CmsData.Codes.MemberStatusCode.Member
+        require_sign_in.append("members only")
+
+    validate_orgs = setting_text(root, "Options", "ValidateOrgs")
+    if validate_orgs:
+        ids = [int(i) for i in re.findall(r"-?\d+", validate_orgs)]
+        include = ",".join(str(i) for i in ids if i > 0)
+        exclude = ",".join(str(-i) for i in ids if i < 0)
+        if len(include) > 100 or len(exclude) > 100:
+            warnings.append("The involvement membership rules are too long for the new form's 100-character fields and "
+                            "were NOT migrated: %s" % shorten(validate_orgs, 100))
+        else:
+            if include:
+                settings["RegIncludeInvolvement"] = include
+            if exclude:
+                settings["RegExcludeInvolvement"] = exclude
+            require_sign_in.append("involvement membership rules")
+
+    # The new form only applies the member-status and membership rules when sign-in is Required (1);
+    # otherwise anonymous (and, for the old default, no sign-in step) is Optional (2).
+    settings["RegSignIn"] = 1 if require_sign_in else 2
+    if require_sign_in:
+        warnings.append("Sign-in is now REQUIRED, because the old form restricted registration by: %s. The new form only "
+                        "applies those rules to people who are signed in." % ", ".join(require_sign_in))
+
+
+def translate_options(root, org, settings, warnings):
+    ask_types = ask_types_present(root)
+
+    # One submission per person, or several. Deposit and limit only work with one per person.
+    multiple = setting_flag(root, "Options", "AllowReRegister")
+    settings["RegSubmissionType"] = 2 if multiple else 1
+    settings["AllowOnlyOne"] = (setting_flag(root, "Options", "AllowOnlyOne")
+                                or bool(org is not None and org.IsMissionTrip)
+                                or "AskTickets" in ask_types)
+    if multiple:
+        if settings.get("RegLimit"):
+            warnings.append("Registrants may register more than once, so the new form doesn't support a registration limit; "
+                            "RegLimit (%s) was dropped." % settings.pop("RegLimit"))
+        if settings.get("RegDepositAmount"):
+            warnings.append("Registrants may register more than once, so the new form doesn't support a deposit; "
+                            "the deposit ($%s) was dropped." % settings.pop("RegDepositAmount"))
+            settings["RegDepositAmount"] = 0
+
+    # Old timeout is in milliseconds (default 180000 when absent); the new one is in minutes, and 1 is invalid.
+    timeout = setting_text(root, "Options", "TimeOut")
+    if timeout is not None:
+        milliseconds = int(to_number(timeout, -1))
+        if milliseconds == 0:
+            settings["RegTimeout"] = 0
+        elif milliseconds > 0:
+            settings["RegTimeout"] = max(2, int(math.ceil(milliseconds / 60000.0)))
+
+    settings["RegJoinAsProspect"] = setting_flag(root, "Options", "AddAsProspect")
+    if settings["RegJoinAsProspect"]:
+        warnings.append("Add-as-prospect: the new form also adds registrants as prospects of the 'join another involvement' "
+                        "target, where the old form always added them as members of it.")
+
+    shell = setting_text(root, "Options", "ShellBs")
+    if shell:
+        settings["RegShellId"] = shell
+
+    if org is not None and org.ClassFilled:
+        settings["RegistrationClosed"] = True
+        warnings.append("This involvement was marked 'class filled'; registration is closed in the new form.")
+    if org is not None and org.IsMissionTrip:
+        warnings.append("This is a mission-trip involvement; the new Registration Form has no mission-trip support.")
+
+
+def translate_messages(root, org, settings, warnings):
+    """Confirmation and staff-notification emails. The new form stores each body as email-designer JSON and
+    sends a blank email if one is missing, so every Send flag is set deliberately."""
+    subject = setting_text(root, "Confirmation", "Subject")
+    body = setting_text(root, "Confirmation", "Body")
+    notify_ids = re.findall(r"\d+", (org.NotifyIds if org is not None else None) or "")
+
+    if settings.get("RegMessageConfirmationEmailSend") is False:
+        pass  # old subject was the do-not-send marker
+    elif body:
+        settings["RegMessageConfirmationEmailBody"] = unlayer_body(body)
+        settings["RegMessageConfirmationEmailSend"] = True
+        if notify_ids:
+            settings["RegMessageConfirmationEmailFrom"] = int(notify_ids[0])
+        else:
+            warnings.append("The confirmation email has no sender: the old settings named no staff to notify. Choose one "
+                            "in the new settings before saving them there.")
+    else:
+        # The old form used the 'DefaultConfirmation' email template when a form had no text of its own.
+        default = q.QuerySqlTop1("select Title, Body from Content where Name = 'DefaultConfirmation'")
+        if default is not None and default.Body:
+            settings["RegMessageConfirmationEmailBody"] = unlayer_body(default.Body)
+            settings["RegMessageConfirmationEmailSend"] = True
+            if not subject and default.Title:
+                settings["RegMessageConfirmationEmailSubject"] = default.Title
+            if notify_ids:
+                settings["RegMessageConfirmationEmailFrom"] = int(notify_ids[0])
+            warnings.append("The old form had no confirmation email text of its own, so the system's 'DefaultConfirmation' "
+                            "email template was copied in.")
+            email_code_warnings("The default confirmation email", default.Body, warnings)
+        else:
+            settings["RegMessageConfirmationEmailSend"] = False
+            warnings.append("The old form had no confirmation email text and there is no 'DefaultConfirmation' template, "
+                            "so the confirmation email was turned OFF rather than send a blank one.")
+
+    # The old form always emailed the staff in NotifyIds, with fixed text.
+    if notify_ids:
+        settings["RegMessageNotificationEmailSend"] = True
+        settings["RegMessageNotificationEmailSubject"] = "New registration: {org}"
+        settings["RegMessageNotificationEmailBody"] = unlayer_body(
+            "<p>{name} has registered for {org}.</p><p>{details}</p>")
+    else:
+        settings["RegMessageNotificationEmailSend"] = False
+
+    email_code_warnings("The confirmation email", "%s %s" % (subject or "", body or ""), warnings)
+    for label, text in (("The thank-you message", setting_text(root, "Instructions", "Thanks")),
+                        ("The 'registration closed' message", setting_text(root, "Instructions", "Sorry"))):
+        lowered = (text or "").lower()
+        literal = [code for code in ("{org}", "{email}", "{url}") if code in lowered]
+        if literal:
+            warnings.append("%s uses replacement code(s) the new page shows literally: %s" % (label, ", ".join(literal)))
+
+
+def warn_not_migrated(root, org, warnings):
+    """Old settings with no equivalent in the new form: say what's being left behind, with its value."""
+    if setting_text(root, "Instructions", "Terms"):
+        warnings.append("Terms and conditions text was NOT migrated (the new form needs a Terms question backed by a "
+                        "content file): %s" % shorten(setting_text(root, "Instructions", "Terms")))
+    for name in ("Login", "Select", "Find", "LoggedIn", "Options", "Special", "Submit", "NoChildren", "AtLeastOneChild",
+                 "MaxReached"):
+        text = setting_text(root, "Instructions", name)
+        if text:
+            warnings.append("The old '%s' step instructions were NOT migrated (the new form has one top message, "
+                            "RegMessageTop): %s" % (name, shorten(text)))
+    for group, name, label in (("Options", "ConfirmationTrackingCode", "tracking code"),
+                               ("Options", "FinishRegistrationButton", "custom finish-button text"),
+                               ("Options", "SubmitButton", "custom submit-button text"),
+                               ("Options", "SpecialScript", "special script")):
+        if setting_text(root, group, name):
+            warnings.append("The old %s was NOT migrated: %s" % (label, shorten(setting_text(root, group, name))))
+    if org is not None and org.AddToSmallGroupScript:
+        warnings.append("The add-to-sub-group script was NOT migrated (the new form never runs it).")
+    if setting_text(root, "Reminder", "Body") or setting_text(root, "Reminder", "Subject"):
+        warnings.append("Reminder email settings stay in the old settings; nothing in the new form edits them.")
+
+
+def get_legacy_org_row(org_id):
+    return q.QuerySqlTop1("""
+        select [Limit] as LegacyLimit, LastDayBeforeExtra, NotifyIds, ClassFilled, IsMissionTrip,
+               AddToSmallGroupScript
+        from Organizations where OrganizationId = %d""" % org_id)
+
+
 def translate_settings(org_id, settings_xml):
-    """Return the {ColumnName: value} dict for the Registration Form schema, translated from the
-    legacy RegSettingXml plus the legacy Limit column. Returns {} if there's nothing to translate.
+    """Return (settings, warnings): settings is the {ColumnName: value} dict for the Registration Form
+    schema, translated from the legacy RegSettingXml plus a few legacy Organizations columns; warnings are
+    plain-text notes about old settings that were changed, dropped or can't be carried over.
     NOTE: RegFeeType/RegFundId/RegMerchantId are Finance-role-gated by model.UpdateOrganization --
     this script never touches those (the old Settings.AccountingCode maps to RegAccountCodeId
-    instead, which isn't restricted), so no special handling is needed here."""
-    row = q.QuerySqlTop1("select [Limit] as LegacyLimit from Organizations where OrganizationId = %d" % org_id)
+    instead, which isn't restricted), so no special handling is needed here.
+    The new settings screen validates some combinations that model.UpdateOrganization does not, so the
+    values produced here are kept consistent with those rules (timeout never 1, a fee change always has
+    a date, no deposit/limit with multiple submissions, ...)."""
+    org = get_legacy_org_row(org_id)
+    root = XElement.Parse(settings_xml) if settings_xml else None
     settings = {}
+    warnings = []
 
-    if row and row.LegacyLimit:
-        settings["RegLimit"] = row.LegacyLimit
+    if org is not None and org.LegacyLimit:
+        settings["RegLimit"] = org.LegacyLimit
 
-    if settings_xml:
-        root = XElement.Parse(settings_xml)
+    for (group, element), (column, convert) in SETTINGS_FIELD_MAP.items():
+        value = setting_text(root, group, element)
+        if value is not None:
+            settings[column] = convert(value)
 
-        for xml_field, (column, convert) in SETTINGS_FIELD_MAP.items():
-            value = xml_text(root, xml_field)
-            if value is not None:
-                settings[column] = convert(value)
+    if settings.get("RegMessageConfirmationEmailSubject") == NO_CONFIRMATION_EMAIL_SUBJECT:
+        # Don't copy the marker as a real subject; turn the email off instead.
+        del settings["RegMessageConfirmationEmailSubject"]
+        settings["RegMessageConfirmationEmailSend"] = False
 
-        account_code_id = find_account_code_id(xml_text(root, "AccountingCode"))
-        if account_code_id is not None:
-            settings["RegAccountCodeId"] = account_code_id
+    account_code_id = find_account_code_id(setting_text(root, "Fees", "AccountingCode"))
+    if account_code_id is not None:
+        settings["RegAccountCodeId"] = account_code_id
 
-        other_org_id = parse_org_id(xml_text(root, "GroupToJoin"))
-        if other_org_id is not None:
-            settings["RegJoinOtherOrgId"] = other_org_id
+    other_org_id = parse_org_id(setting_text(root, "Options", "GroupToJoin"))
+    if other_org_id is not None:
+        settings["RegJoinOtherOrgId"] = other_org_id
 
-    return settings
+    translate_fees(root, org, settings, warnings)
+    translate_options(root, org, settings, warnings)
+    translate_access(root, org, settings, warnings)
+    translate_messages(root, org, settings, warnings)
+    warn_not_migrated(root, org, warnings)
+    return settings, warnings
 
 
 # --- Question translation (RegSettingXml AskItems -> RegQuestion rows) -----------------------------
@@ -213,6 +521,12 @@ SIMPLE_ELEMENT_ASK_TYPES = {
     "AskGradeOptions": (6, 11, [("gradeoption", None)]),  # DropDown / Grade
     "AskSize": (6, 2, [("shirtsize", None)]),  # DropDown / ShirtSize
 }
+
+
+def default_label(ask_type):
+    """A readable question label for an ask type whose old XML has no <Label>, e.g. AskEmContact -> 'Em Contact'."""
+    name = ask_type[3:] if ask_type.startswith("Ask") else ask_type
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name) or ask_type
 
 
 def parse_multi_choice(ele, shape):
@@ -323,7 +637,7 @@ def parse_ask_items(settings_xml):
     if ask_items_el is None:
         return [], []
 
-    org_target_extra_values = (xml_text(root, "TargetExtraValues") or "").lower() == "true"
+    org_target_extra_values = setting_flag(root, "Options", "TargetExtraValues")
     questions = []
     unhandled = []
     order = 0
@@ -345,16 +659,16 @@ def parse_ask_items(settings_xml):
             parsed = parse_yes_no(ele, save_as)
         elif ask_type in SIMPLE_ELEMENT_ASK_TYPES:
             q_type, q_subtype, _fields = SIMPLE_ELEMENT_ASK_TYPES[ask_type]
-            label = xml_text(ele, "Label") or ask_type
+            label = xml_text(ele, "Label") or default_label(ask_type)
             parsed = [{"label": label, "question_type": q_type, "question_subtype": q_subtype,
                        "options": [], "ask_type": ask_type}]
         elif ask_type in SINGLE_ANSWER_ASK_TYPES:
             shape = SINGLE_ANSWER_ASK_TYPES[ask_type]
-            label = xml_text(ele, "Label") or ask_type
+            label = xml_text(ele, "Label") or default_label(ask_type)
             parsed = [{"label": label, "question_type": shape["question_type"],
                        "question_subtype": shape["question_subtype"], "options": []}]
         elif ask_type in STRUCTURAL_ASK_TYPES:
-            label = xml_text(ele, "Label") or ask_type
+            label = xml_text(ele, "Label") or default_label(ask_type)
             parsed = [{"label": label, "question_type": 4, "question_subtype": 0, "options": []}]  # Instructions
         else:
             unhandled.append(ask_type)
@@ -374,6 +688,196 @@ def parse_ask_items(settings_xml):
             questions.append(question)
 
     return questions, unhandled
+
+
+# --- Person-info question (the old "Settings" checkboxes -> one PersonInfo RegQuestion) -------------
+#
+# The old forms asked for the registrant's name, email, phone, address, birthday, gender and marital
+# status on fixed steps, controlled by checkboxes in the registration settings rather than by AskItems.
+# The Registration Form instead has ONE person-info question (QuestionTypeEnum.PersonInfo) whose options
+# are those fields. An option's Value says how it's asked: 0 hidden, 1 shown, 2 shown and required, 3
+# always required and locked (first name, last name and email) -- see PersonInfoQuestion.vue.
+
+PERSON_INFO_QUESTION_TYPE = 5
+ONE_PAGE_REGISTRATION_TYPE = 23  # CmsData.Codes.RegistrationTypeCode.OnePageRegistration
+COMPUTE_ORG_BY_AGE_TYPE = 11  # CmsData.Codes.RegistrationTypeCode.ComputeOrgByAge
+
+PERSON_INFO_HIDDEN = 0
+PERSON_INFO_SHOWN = 1
+PERSON_INFO_REQUIRED = 2
+PERSON_INFO_LOCKED = 3
+
+
+def get_registration_type(org_id):
+    row = q.QuerySqlTop1("select RegistrationTypeId from Organizations where OrganizationId = %d" % org_id)
+    return row.RegistrationTypeId if row else None
+
+
+def build_person_info_question(settings_xml, registration_type):
+    """Build the PersonInfo question that reproduces the old form's person fields, from the old
+    settings flags. Returns (question, notes): question is a dict in the same shape parse_ask_items
+    returns, and notes are warnings about old flags that have no equivalent.
+
+    Regular ("Join Involvement") forms ask for every field and treat each as required unless its
+    NotReq* flag is set; only one-page registrations have an explicit Show checkbox per field, so
+    the ShowX flags are honored for one-page registrations only. The old "find" step's optional
+    date-of-birth and phone fields have no counterpart: the new form simply shows birthday and cell
+    phone (so they're collected either way)."""
+    root = XElement.Parse(settings_xml) if settings_xml else None
+
+    def flag(name):
+        group = "NotRequired" if name.startswith(("NotReq", "NoReq", "ShowDOBOnFind", "ShowPhoneOnFind",
+                                                  "ShowCreateAccount")) else "Options"
+        return setting_flag(root, group, name)
+
+    one_page = registration_type == ONE_PAGE_REGISTRATION_TYPE
+
+    def level(show_flag, not_required_flag):
+        if one_page and not flag(show_flag):
+            return PERSON_INFO_HIDDEN
+        return PERSON_INFO_SHOWN if flag(not_required_flag) else PERSON_INFO_REQUIRED
+
+    notes = []
+    phone = level("ShowPhone", "NotReqPhone")
+    birthday = level("ShowDOB", "NotReqDOB")
+    if registration_type == COMPUTE_ORG_BY_AGE_TYPE:
+        birthday = PERSON_INFO_REQUIRED
+        notes.append("This Involvement chose its group by age. Birthday is set to required, but the age-based choice "
+                     "itself is NOT rebuilt.")
+    gender = level("ShowGender", "NotReqGender")
+    marital = level("ShowMarital", "NotReqMarital")
+
+    # The old form asked for address and zip separately; the new one has either a full address input or a
+    # zip-code-only input (the "zip code only" toggle renames the address option).
+    address = level("ShowAddress", "NotReqAddr")
+    zip_code = level("ShowZip", "NotReqZip")
+    address_name, address_text, address_level = "address", "Address", address
+    if address == PERSON_INFO_HIDDEN and zip_code != PERSON_INFO_HIDDEN:
+        address_name, address_text, address_level = "zip", "Zip Code", zip_code
+    elif address != PERSON_INFO_HIDDEN and zip_code != PERSON_INFO_HIDDEN:
+        if address == PERSON_INFO_SHOWN and zip_code == PERSON_INFO_REQUIRED:
+            address_name, address_text, address_level = "zip", "Zip Code", PERSON_INFO_REQUIRED
+            notes.append("The old form required a zip code but made the street address optional; the new form can "
+                         "ask for either, so only a required zip code is asked and the optional address is dropped.")
+
+    for name, label in (("NoReqBirthYear", "Birth year not required"),
+                        ("ShowCountry", "Show the country list"),
+                        ("ShowCreateAccount", "Show the create-account checkbox"),
+                        ("NotReqCampus", "Campus not required")):
+        if flag(name):
+            notes.append("'%s' (%s) has no equivalent in the new form and was not carried over." % (name, label))
+    if flag("ShowDOBOnFind") or flag("ShowPhoneOnFind"):
+        notes.append("The old 'find shows date of birth / phone' options have no equivalent; the new form shows "
+                     "birthday and cell phone as person-info fields instead.")
+
+    options = [
+        {"Name": "firstname", "Text": "First Name", "Value": str(PERSON_INFO_LOCKED)},
+        {"Name": "lastname", "Text": "Last Name", "Value": str(PERSON_INFO_LOCKED)},
+        {"Name": "email", "Text": "Email", "Value": str(PERSON_INFO_LOCKED)},
+        {"Name": "cellphone", "Text": "Cell Phone", "Value": str(phone)},
+        {"Name": address_name, "Text": address_text, "Value": str(address_level)},
+        {"Name": "birthday", "Text": "Birthday", "Value": str(birthday)},
+        {"Name": "gender", "Text": "Gender", "Value": str(gender)},
+        {"Name": "maritalstatus", "Text": "Marital Status", "Value": str(marital)},
+    ]
+    question = {
+        "label": "Enter your information",
+        "question_type": PERSON_INFO_QUESTION_TYPE,
+        "question_subtype": 0,
+        "options": options,
+        "required": True,  # for a person-info question this means "allow editing when signed in"
+        "save_as": SAVE_AS_ANSWER,
+        "old_type": "PersonInfo",
+        "order": 0,
+        "answer_kind": ("personinfo", [option["Name"] for option in options if option["Value"] != str(PERSON_INFO_HIDDEN)]),
+    }
+    return question, notes
+
+
+def build_donation_question(root):
+    """The old Fees settings asked for a donation with AskDonation/MakeDonationRequired/DonationLabel/
+    DonationFundId; the new form does that with a Money/Donation question (one per form) whose minimum
+    value holds the fund id. Returns None if the old form didn't ask for a donation. Past donations were
+    recorded as contributions, not answers, so none are migrated as answers."""
+    if not setting_flag(root, "Fees", "AskDonation"):
+        return None
+    return {
+        "label": setting_text(root, "Fees", "DonationLabel") or "Donation",
+        "question_type": 11,  # Money
+        "question_subtype": 7,  # Donation
+        "options": [],
+        "required": setting_flag(root, "Fees", "MakeDonationRequired"),
+        "save_as": SAVE_AS_ANSWER,
+        "old_type": "Donation",
+        "minimum_value": setting_text(root, "Fees", "DonationFundId"),
+    }
+
+
+def parse_birthday(text):
+    """The old form's date-of-birth text as yyyy-MM-dd (what the new person-info question stores), or None."""
+    if not text:
+        return None
+    from System import DateTime
+    ok, parsed = DateTime.TryParse(text)
+    return parsed.ToString("yyyy-MM-dd") if ok else None
+
+
+def to_int_or_none(text):
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def person_info_answer(person_el, member, fields):
+    """The answer to the person-info question for one registration: the person's details AS ENTERED on that
+    registration (from its stored form data), shaped like the new form's own answer. These are never written
+    to the person's record -- they may legitimately differ from today's profile. When the stored form data
+    can't be found, only the name and email (which the roster still has) are recorded. fields is the list of
+    option names the question actually shows."""
+    def value(name):
+        return xml_text(person_el, name) if person_el is not None else None
+
+    address_parts = [value("AddressLineOne"), value("AddressLineTwo"), value("City"), value("State"), value("ZipCode")]
+    candidates = {
+        "firstname": value("FirstName") or member.FirstName,
+        "lastname": value("LastName") or member.LastName,
+        "email": value("EmailAddress") or member.EmailAddress or member.RegisterEmail,
+        "cellphone": value("cellPhone") or value("Phone"),
+        "birthday": parse_birthday(value("DateOfBirth")),
+        "gender": to_int_or_none(value("gender")),
+        "maritalstatus": to_int_or_none(value("married")),
+        # same comma-joined shape the new form builds from a family address
+        "address": ", ".join(part or "" for part in address_parts) if any(address_parts) else None,
+        "zip": value("ZipCode"),
+    }
+    answer = {"peopleId": member.PeopleId}
+    for name in fields:
+        if candidates.get(name) is not None:
+            answer[name] = candidates[name]
+    return answer
+
+
+def person_element_for_transaction(people_id, transaction_id):
+    """The registration form data for one person from the RegistrationData session that produced this
+    transaction, or None. Used for earlier enrollments recovered from OnlineOPRRegQA, which doesn't keep
+    the person's own details."""
+    if not transaction_id:
+        return None
+    row = q.QuerySqlTop1("select DatumId from [Transaction] where Id = %d" % int(transaction_id))
+    if row is None or not row.DatumId:
+        return None
+    datum = q.QuerySqlTop1("select Data from RegistrationData where Id = %d" % int(row.DatumId))
+    if datum is None or not datum.Data:
+        return None
+    list_el = XElement.Parse(datum.Data).Element("List")
+    if list_el is None:
+        return None
+    for person_el in list_el.Elements("OnlineRegPersonModel"):
+        pid_el = person_el.Element("PeopleId")
+        if pid_el is not None and pid_el.Value == str(people_id):
+            return person_el
+    return None
 
 
 def migrate_questions(org_id, questions, apply_changes):
@@ -404,6 +908,7 @@ def migrate_questions(org_id, questions, apply_changes):
                 question["options"],
                 question["question_subtype"],
                 question["save_as"],
+                question.get("minimum_value"),
             )
         else:
             reg_question_id = question["label"]
@@ -685,7 +1190,8 @@ def find_prior_submissions(org_id, people_id, exclude_datum_id, before=None):
             if pid_el is not None and pid_el.Value == str(people_id):
                 answers, skipped = answers_from_person_element(person_el)
                 submissions.append({
-                    "datum_id": row.DatumId, "created": row.Stamp, "answers": answers, "skipped": skipped,
+                    "datum_id": row.DatumId, "created": row.Stamp, "person_el": person_el,
+                    "answers": answers, "skipped": skipped,
                     "simple_values": simple_element_values_from_element(person_el),
                 })
     return submissions
@@ -734,6 +1240,9 @@ def migrate_member(org_id, member, question_map, type_map, answer_kinds, apply_c
     # Answers for the CURRENT registration: from this person's newest OnlineOPRRegQA enrollment when
     # there is one; otherwise from the roster row's OnlineRegData XML (enrollments before mid-2022).
     xml_simple_values = get_current_extra_values(member)
+    current_person_el = XElement.Parse(member.OnlineRegData) if member.OnlineRegData else None
+    person_info_id = next((qid for qid, kind in answer_kinds.items() if kind[0] == "personinfo"), None)
+    person_info_fields = answer_kinds[person_info_id][1] if person_info_id else []
     opr_submissions = get_opr_submissions(org_id, member.PeopleId)  # oldest first
     if opr_submissions:
         current = opr_submissions[-1]
@@ -772,6 +1281,7 @@ def migrate_member(org_id, member, question_map, type_map, answer_kinds, apply_c
                            if t not in accounted_transaction_ids]
         accounted_transaction_ids.extend(transaction_ids)
         extras.append({"source": "OnlineOPRRegQA", "created": submission["created"],
+                       "person_el": person_element_for_transaction(member.PeopleId, submission["tran_id"]),
                        "answers": submission["answers"], "skipped": submission["skipped"],
                        "simple_values": submission["simple_values"], "transaction_ids": transaction_ids})
 
@@ -781,10 +1291,11 @@ def migrate_member(org_id, member, question_map, type_map, answer_kinds, apply_c
                            if t not in accounted_transaction_ids]
         accounted_transaction_ids.extend(transaction_ids)
         extras.append({"source": "RegistrationData XML", "created": submission["created"],
+                       "person_el": submission["person_el"],
                        "answers": submission["answers"], "skipped": submission["skipped"],
                        "simple_values": submission["simple_values"], "transaction_ids": transaction_ids})
     for transaction_id in get_unaccounted_transactions(org_id, member.PeopleId, accounted_transaction_ids):
-        extras.append({"source": "payment only", "created": None, "answers": {}, "skipped": [],
+        extras.append({"source": "payment only", "created": None, "person_el": None, "answers": {}, "skipped": [],
                        "simple_values": {}, "transaction_ids": [transaction_id]})
 
     for extra in extras:
@@ -804,6 +1315,8 @@ def migrate_member(org_id, member, question_map, type_map, answer_kinds, apply_c
     reg_person_id = model.AddRegPerson(registration_id, member.PeopleId, member.FirstName, member.LastName,
                                         email, status, completed_date, member.Amount, member.AmountPaid or 0)
     write_answers(reg_person_id, answers, current_simple_values, question_map, type_map, answer_kinds)
+    if person_info_id:
+        model.AddRegAnswer(reg_person_id, person_info_id, person_info_answer(current_person_el, member, person_info_fields))
     for transaction_id in current_transaction_ids:
         model.LinkTransactionToRegistration(transaction_id, registration_id)
 
@@ -815,6 +1328,9 @@ def migrate_member(org_id, member, question_map, type_map, answer_kinds, apply_c
                                                   member.LastName, email, status)
         write_answers(extra_reg_person_id, extra["answers"], extra["simple_values"], question_map, type_map,
                       answer_kinds)
+        if person_info_id and extra["source"] != "payment only":
+            model.AddRegAnswer(extra_reg_person_id, person_info_id,
+                               person_info_answer(extra["person_el"], member, person_info_fields))
         for transaction_id in extra["transaction_ids"]:
             model.LinkTransactionToRegistration(transaction_id, extra_registration_id)
 
@@ -838,7 +1354,7 @@ def labels_for(questions, predicate, limit=8):
     return shown + (", and %d more" % (len(labels) - limit) if len(labels) > limit else ""), len(labels)
 
 
-def print_differences(questions):
+def print_differences(questions, person_info_notes=(), settings_warnings=()):
     """Warn about the places where the new Registration Form works differently from the old one, so
     the preview shows them before anything is applied. Always-true points come first; the rest only
     appear when this Involvement actually has the kind of question they're about."""
@@ -846,6 +1362,23 @@ def print_differences(questions):
     print "  * History only: past registrants' sub-groups, extra values and profile fields are NOT changed."
     print "    Their answers are recorded on their Registrations, but nobody's current state is touched --"
     print "    including cell phone, SMS opt-in and grade, which become answers rather than profile updates."
+
+    print "  * A person-info question (name, email, phone, address, birthday, gender, marital status) was created from the"
+    print "    old form's show/required settings. Each registration's answer to it holds the details as entered on THAT"
+    print "    registration (from its stored form data; just name and email where that's gone) -- never copied onto the"
+    print "    person's record, so they may differ from the current profile."
+    for note in person_info_notes:
+        print "    NOTE: %s" % note
+
+    if settings_warnings:
+        print "  * Settings that were changed, dropped or can't be carried over:"
+        for warning in settings_warnings:
+            print "    - %s" % warning
+
+    shown, count = labels_for(questions, lambda x: x["old_type"] == "Donation")
+    if count:
+        print "  * The old form's donation request became a donation question: %s. Past donations were recorded as" % shown
+        print "    contributions, not answers, so none are shown as answers on migrated registrations."
 
     shown, count = labels_for(questions, lambda x: x["save_as"] == SAVE_AS_SUBGROUP)
     if count:
@@ -900,10 +1433,10 @@ def run(org_id, apply_changes):
     settings_xml = get_legacy_settings_xml(org_id)
 
     print "=== Settings ==="
-    settings = translate_settings(org_id, settings_xml)
+    settings, settings_warnings = translate_settings(org_id, settings_xml)
     if settings:
-        for column, value in settings.items():
-            print "  %s = %r" % (column, value)
+        for column, value in sorted(settings.items()):
+            print "  %s = %s" % (column, shorten(repr(value), 100))
         if apply_changes:
             model.UpdateOrganization(org_id, settings)
     else:
@@ -911,11 +1444,25 @@ def run(org_id, apply_changes):
 
     print "=== Questions ==="
     questions, unhandled_types = parse_ask_items(settings_xml)
+    person_info, person_info_notes = build_person_info_question(settings_xml, get_registration_type(org_id))
+    questions.insert(0, person_info)  # the old form always asked for these first
+    donation = build_donation_question(XElement.Parse(settings_xml) if settings_xml else None)
+    if donation:
+        questions.append(donation)
+    for position, question in enumerate(questions):
+        question["order"] = position
+
+    # The new settings screen refuses to save a form with fees but no account code.
+    has_fees = (settings.get("RegFeePerPerson", 0) > 0 or settings.get("RegFeeChange", 0) > 0
+                or any(option.get("Fee") for question in questions for option in question["options"]))
+    if has_fees and not settings.get("RegAccountCodeId"):
+        settings_warnings.append("This form has fees but no account code was found; the new settings screen requires one "
+                                 "(unless the fee type is tax-deductible), so set it before editing the settings there.")
     question_map, type_map, answer_kinds = migrate_questions(org_id, questions, apply_changes)
     if unhandled_types:
         print "  SKIPPED (add by hand with model.AddRegQuestion): %s" % ", ".join(set(unhandled_types))
 
-    print_differences(questions)
+    print_differences(questions, person_info_notes, settings_warnings)
 
     print "=== Registrations, answers, and payments ==="
     roster = list(get_roster(org_id))

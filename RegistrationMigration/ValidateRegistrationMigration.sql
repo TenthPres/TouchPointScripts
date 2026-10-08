@@ -190,6 +190,31 @@ WHERE r.OrganizationId = @OrganizationId
   AND a.AnswerValue IS NOT NULL
   AND ISJSON(a.AnswerValue) = 0;
 
+-- 13. The form has exactly one person-info question (QuestionTypeId 5): it holds the name/email/phone/
+--     address/birthday/gender/marital-status fields the old form asked for outside its question list.
+INSERT INTO #Results (Check_, Result, Detail)
+SELECT 'Exactly one person-info question',
+       CASE WHEN COUNT(*) = 1 THEN 'PASS' ELSE 'FAIL' END,
+       CAST(COUNT(*) AS NVARCHAR(10)) + ' enabled person-info question(s)'
+FROM RegQuestion
+WHERE OrganizationId = @OrganizationId AND QuestionTypeId = 5 AND IsDisabled = 0;
+
+-- 14. Settings combinations the new settings screen would reject if someone saved them there. The
+--     migration writes columns directly, so nothing else stops a bad combination.
+INSERT INTO #Results (Check_, Result, Detail)
+SELECT 'Settings the new screen would reject',
+       CASE WHEN COUNT(*) = 0 THEN 'PASS' ELSE 'FAIL' END,
+       CASE WHEN COUNT(*) = 0 THEN 'none' ELSE
+            'submission type not 1/2, timeout of 1, fee change without a date, a zero max fee, or an email with no valid JSON body' END
+FROM Organizations o
+WHERE o.OrganizationId = @OrganizationId
+  AND ( o.RegSubmissionType NOT IN (1, 2)
+        OR o.RegTimeout = 1
+        OR (o.RegFeeChange <> 0 AND o.RegFeeChangeDate IS NULL)
+        OR o.RegMaxFee = 0
+        OR (o.RegMessageConfirmationEmailSend = 1 AND (o.RegMessageConfirmationEmailBody IS NULL OR ISJSON(o.RegMessageConfirmationEmailBody) = 0))
+        OR (o.RegMessageNotificationEmailSend = 1 AND (o.RegMessageNotificationEmailBody IS NULL OR ISJSON(o.RegMessageNotificationEmailBody) = 0)) );
+
 SELECT Check_, Result, Detail FROM #Results ORDER BY Ord;
 
 DROP TABLE #Results;
