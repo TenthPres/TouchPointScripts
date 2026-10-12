@@ -110,33 +110,35 @@ for p in q.QueryList('''
 # ###### MANAGEGROUPS #######
 
 # Leaders of involvements with a Scheduler registration type (RegistrationTypeId 22) need ManageGroups.
+# "Leader" is any member type with the Leader attendance type (AttendTypeId 10), so this isn't tied to specific
+# member type IDs.
 SCHEDULER_LEADERS_SQL = '''
     SELECT DISTINCT om.PeopleId
     FROM OrganizationMembers om
     JOIN Organizations o ON o.OrganizationId = om.OrganizationId
+    JOIN MemberType mt ON mt.Id = om.MemberTypeId
+    JOIN AttendType att ON att.Id = mt.AttendanceTypeId
     WHERE o.RegistrationTypeId = 22
       AND o.OrganizationStatusId = 30
-      AND om.MemberTypeId IN ( 159, 103, 150, 140, 160 )
+      AND att.Id = 10
       AND om.InactiveDate IS NULL
 '''
 scheduler_leaders = set(r.PeopleId for r in q.QuerySql(SCHEDULER_LEADERS_SQL))
 
 # Current holders of the ManageGroups role, along with whether they have the Access and OrgLeadersOnly roles.
+# A person may have more than one user account, so this is evaluated per person (one row each): they have a role if
+# any of their accounts does, which matches how the person-level queries above treat roles.
 MANAGEGROUPS_HOLDERS_SQL = '''
     SELECT p.PeopleId, p.Name2 AS Name,
-           CASE WHEN EXISTS (
-                SELECT 1 FROM UserRole ur2 JOIN Roles r2 ON r2.RoleId = ur2.RoleId
-                WHERE ur2.UserId = u.UserId AND r2.RoleName = 'Access'
-           ) THEN 1 ELSE 0 END AS HasAccess,
-           CASE WHEN EXISTS (
-                SELECT 1 FROM UserRole ur3 JOIN Roles r3 ON r3.RoleId = ur3.RoleId
-                WHERE ur3.UserId = u.UserId AND r3.RoleName = 'OrgLeadersOnly'
-           ) THEN 1 ELSE 0 END AS HasOrgLeadersOnly
-    FROM Users u
-    JOIN People p ON p.PeopleId = u.PeopleId
+           MAX(CASE WHEN r.RoleName = 'Access' THEN 1 ELSE 0 END) AS HasAccess,
+           MAX(CASE WHEN r.RoleName = 'OrgLeadersOnly' THEN 1 ELSE 0 END) AS HasOrgLeadersOnly,
+           MAX(CASE WHEN r.RoleName = 'ManageGroups' THEN 1 ELSE 0 END) AS HasManageGroups
+    FROM People p
+    JOIN Users u ON u.PeopleId = p.PeopleId
     JOIN UserRole ur ON ur.UserId = u.UserId
     JOIN Roles r ON r.RoleId = ur.RoleId
-    WHERE r.RoleName = 'ManageGroups'
+    GROUP BY p.PeopleId, p.Name2
+    HAVING MAX(CASE WHEN r.RoleName = 'ManageGroups' THEN 1 ELSE 0 END) = 1
 '''
 managegroups_holders = list(q.QuerySql(MANAGEGROUPS_HOLDERS_SQL))
 managegroups_holder_ids = set(h.PeopleId for h in managegroups_holders)
