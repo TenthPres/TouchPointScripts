@@ -110,17 +110,16 @@ for p in q.QueryList('''
 # ###### MANAGEGROUPS #######
 
 # Leaders of involvements with a Scheduler registration type (RegistrationTypeId 22) need ManageGroups.
-# "Leader" is any member type with the Leader attendance type (AttendTypeId 10), so this isn't tied to specific
+# "Leader" is any member type with the Leader attendance type (AttendanceTypeId 10), so this isn't tied to specific
 # member type IDs.
 SCHEDULER_LEADERS_SQL = '''
     SELECT DISTINCT om.PeopleId
     FROM OrganizationMembers om
     JOIN Organizations o ON o.OrganizationId = om.OrganizationId
-    JOIN MemberType mt ON mt.Id = om.MemberTypeId
-    JOIN AttendType att ON att.Id = mt.AttendanceTypeId
+    JOIN lookup.MemberType mt ON mt.Id = om.MemberTypeId
     WHERE o.RegistrationTypeId = 22
       AND o.OrganizationStatusId = 30
-      AND att.Id = 10
+      AND mt.AttendanceTypeId = 10
       AND om.InactiveDate IS NULL
 '''
 scheduler_leaders = set(r.PeopleId for r in q.QuerySql(SCHEDULER_LEADERS_SQL))
