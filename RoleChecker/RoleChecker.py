@@ -107,6 +107,57 @@ for p in q.QueryList('''
     model.RemoveRole(p.PeopleId, "Attendance")
 
 
+# ###### MANAGEGROUPS #######
+
+# Leaders of involvements with a Scheduler registration type (RegistrationTypeId 22) need ManageGroups.
+SCHEDULER_LEADERS_SQL = '''
+    SELECT DISTINCT om.PeopleId
+    FROM OrganizationMembers om
+    JOIN Organizations o ON o.OrganizationId = om.OrganizationId
+    WHERE o.RegistrationTypeId = 22
+      AND o.OrganizationStatusId = 30
+      AND om.MemberTypeId IN ( 159, 103, 150, 140, 160 )
+      AND om.InactiveDate IS NULL
+'''
+scheduler_leaders = set(r.PeopleId for r in q.QuerySql(SCHEDULER_LEADERS_SQL))
+
+# Current holders of the ManageGroups role, along with whether they have the Access and OrgLeadersOnly roles.
+MANAGEGROUPS_HOLDERS_SQL = '''
+    SELECT p.PeopleId, p.Name2 AS Name,
+           CASE WHEN EXISTS (
+                SELECT 1 FROM UserRole ur2 JOIN Roles r2 ON r2.RoleId = ur2.RoleId
+                WHERE ur2.UserId = u.UserId AND r2.RoleName = 'Access'
+           ) THEN 1 ELSE 0 END AS HasAccess,
+           CASE WHEN EXISTS (
+                SELECT 1 FROM UserRole ur3 JOIN Roles r3 ON r3.RoleId = ur3.RoleId
+                WHERE ur3.UserId = u.UserId AND r3.RoleName = 'OrgLeadersOnly'
+           ) THEN 1 ELSE 0 END AS HasOrgLeadersOnly
+    FROM Users u
+    JOIN People p ON p.PeopleId = u.PeopleId
+    JOIN UserRole ur ON ur.UserId = u.UserId
+    JOIN Roles r ON r.RoleId = ur.RoleId
+    WHERE r.RoleName = 'ManageGroups'
+'''
+managegroups_holders = list(q.QuerySql(MANAGEGROUPS_HOLDERS_SQL))
+managegroups_holder_ids = set(h.PeopleId for h in managegroups_holders)
+
+print "\n Remove ManageGroups role\n"
+# Remove ManageGroups from anyone without the Access role, or who is limited to OrgLeadersOnly and doesn't lead a
+# Scheduler involvement.
+for h in managegroups_holders:
+    if not h.HasAccess or (h.HasOrgLeadersOnly and h.PeopleId not in scheduler_leaders):
+        print "  " + h.Name + "\n"
+        model.RemoveRole(h.PeopleId, "ManageGroups")
+        managegroups_holder_ids.discard(h.PeopleId)
+
+print "\n Add ManageGroups role\n"
+# Add ManageGroups for leaders of Scheduler involvements who have Access (the Access role is granted above).
+for p in q.QueryList('UserRole = 2[Access]'):
+    if p.PeopleId in scheduler_leaders and p.PeopleId not in managegroups_holder_ids:
+        print "  " + p.Name + "\n"
+        model.AddRole(p.PeopleId, "ManageGroups")
+
+
 # ###### OFFICER #######
 
 print "\n Remove Officer role\n"
