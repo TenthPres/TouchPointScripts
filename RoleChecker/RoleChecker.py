@@ -54,8 +54,10 @@ for p in q.QueryList('''
         IsMemberOf( Org=61[Staff] ) = 1[True]
         OR IsMemberOf( Org=124[Session] ) = 1[True]
         OR IsMemberOf( Org=125[Diaconate] ) = 1[True]
+        OR IsMemberOf( Org=128[Trustees] ) = 1[True]
+        OR IsMemberOf( Div=41[Parish Councils] ) = 1[True]
         OR IsMemberOf( Org=132[Women's Committee] ) = 1[True]
-        OR OrgSearchMember( OrgType2=51[Parish Council] ) = 1[True] 
+        OR IsMemberOf( Org=126[Nominating Committee] ) = 1[True]
     )
     AND EmailAddress <> '*touchpointsoftware.com'
     AND UserRole = 14[OrgLeadersOnly]
@@ -67,12 +69,15 @@ for p in q.QueryList('''
 print "\n Add OrgLeadersOnly role\n"
 # Add OrgLeaderOnly for those who have access role (from above), but aren't staff or officers. 
 for p in q.QueryList('''
-    UserRole NOT IN ( 8[Finance], 9[Developer], 18[Checkin], 46[APIOnly], 47[APIWrite] )
+    UserRole NOT IN ( 8[Finance], 9[Developer], 46[APIOnly], 47[APIWrite] )
     AND IsMemberOf( Org=61[Staff] ) <> 1[True]
     AND IsMemberOf( Org=124[Session] ) <> 1[True]
     AND IsMemberOf( Org=125[Diaconate] ) <> 1[True]
+    AND IsMemberOf( Org=128[Trustees] ) <> 1[True]
+    AND IsMemberOf( Div=41[Parish Councils] ) <> 1[True]
     AND IsMemberOf( Org=132[Women's Committee] ) <> 1[True]
-    AND OrgSearchMember( OrgType2=51[Parish Council] ) <> 1[True] 
+    AND IsMemberOf( Org=126[Nominating Committee] ) <> 1[True]
+    
     AND EmailAddress <> '*touchpointsoftware.com'
     AND UserRole = 2[Access]
     AND UserRole <> 14[OrgLeadersOnly]
