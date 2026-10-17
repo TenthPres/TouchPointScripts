@@ -54,8 +54,10 @@ for p in q.QueryList('''
         IsMemberOf( Org=61[Staff] ) = 1[True]
         OR IsMemberOf( Org=124[Session] ) = 1[True]
         OR IsMemberOf( Org=125[Diaconate] ) = 1[True]
+        OR IsMemberOf( Org=128[Trustees] ) = 1[True]
+        OR IsMemberOf( Div=41[Parish Councils] ) = 1[True]
         OR IsMemberOf( Org=132[Women's Committee] ) = 1[True]
-        OR OrgSearchMember( OrgType2=51[Parish Council] ) = 1[True] 
+        OR IsMemberOf( Org=126[Nominating Committee] ) = 1[True]
     )
     AND EmailAddress <> '*touchpointsoftware.com'
     AND UserRole = 14[OrgLeadersOnly]
@@ -67,12 +69,15 @@ for p in q.QueryList('''
 print "\n Add OrgLeadersOnly role\n"
 # Add OrgLeaderOnly for those who have access role (from above), but aren't staff or officers. 
 for p in q.QueryList('''
-    UserRole NOT IN ( 8[Finance], 9[Developer], 18[Checkin], 46[APIOnly], 47[APIWrite] )
+    UserRole NOT IN ( 8[Finance], 9[Developer], 46[APIOnly], 47[APIWrite] )
     AND IsMemberOf( Org=61[Staff] ) <> 1[True]
     AND IsMemberOf( Org=124[Session] ) <> 1[True]
     AND IsMemberOf( Org=125[Diaconate] ) <> 1[True]
+    AND IsMemberOf( Org=128[Trustees] ) <> 1[True]
+    AND IsMemberOf( Div=41[Parish Councils] ) <> 1[True]
     AND IsMemberOf( Org=132[Women's Committee] ) <> 1[True]
-    AND OrgSearchMember( OrgType2=51[Parish Council] ) <> 1[True] 
+    AND IsMemberOf( Org=126[Nominating Committee] ) <> 1[True]
+    
     AND EmailAddress <> '*touchpointsoftware.com'
     AND UserRole = 2[Access]
     AND UserRole <> 14[OrgLeadersOnly]
@@ -105,6 +110,58 @@ for p in q.QueryList('''
 '''):
     print "  " + p.Name + "\n"
     model.RemoveRole(p.PeopleId, "Attendance")
+
+
+# ###### MANAGEGROUPS #######
+
+# Leaders of involvements with a Scheduler registration type (RegistrationTypeId 22) need ManageGroups.
+# "Leader" is any member type with the Leader attendance type (AttendanceTypeId 10), so this isn't tied to specific
+# member type IDs.
+SCHEDULER_LEADERS_SQL = '''
+    SELECT DISTINCT om.PeopleId
+    FROM OrganizationMembers om
+    JOIN Organizations o ON o.OrganizationId = om.OrganizationId
+    JOIN lookup.MemberType mt ON mt.Id = om.MemberTypeId
+    WHERE o.RegistrationTypeId = 22
+      AND o.OrganizationStatusId = 30
+      AND mt.AttendanceTypeId = 10
+      AND om.InactiveDate IS NULL
+'''
+scheduler_leaders = set(r.PeopleId for r in q.QuerySql(SCHEDULER_LEADERS_SQL))
+
+# Current holders of the ManageGroups role, along with whether they have the Access and OrgLeadersOnly roles.
+# A person may have more than one user account, so this is evaluated per person (one row each): they have a role if
+# any of their accounts does, which matches how the person-level queries above treat roles.
+MANAGEGROUPS_HOLDERS_SQL = '''
+    SELECT p.PeopleId, p.Name2 AS Name,
+           MAX(CASE WHEN r.RoleName = 'Access' THEN 1 ELSE 0 END) AS HasAccess,
+           MAX(CASE WHEN r.RoleName = 'OrgLeadersOnly' THEN 1 ELSE 0 END) AS HasOrgLeadersOnly,
+           MAX(CASE WHEN r.RoleName = 'ManageGroups' THEN 1 ELSE 0 END) AS HasManageGroups
+    FROM People p
+    JOIN Users u ON u.PeopleId = p.PeopleId
+    JOIN UserRole ur ON ur.UserId = u.UserId
+    JOIN Roles r ON r.RoleId = ur.RoleId
+    GROUP BY p.PeopleId, p.Name2
+    HAVING MAX(CASE WHEN r.RoleName = 'ManageGroups' THEN 1 ELSE 0 END) = 1
+'''
+managegroups_holders = list(q.QuerySql(MANAGEGROUPS_HOLDERS_SQL))
+managegroups_holder_ids = set(h.PeopleId for h in managegroups_holders)
+
+print "\n Remove ManageGroups role\n"
+# Remove ManageGroups from anyone without the Access role, or who is limited to OrgLeadersOnly and doesn't lead a
+# Scheduler involvement.
+for h in managegroups_holders:
+    if not h.HasAccess or (h.HasOrgLeadersOnly and h.PeopleId not in scheduler_leaders):
+        print "  " + h.Name + "\n"
+        model.RemoveRole(h.PeopleId, "ManageGroups")
+        managegroups_holder_ids.discard(h.PeopleId)
+
+print "\n Add ManageGroups role\n"
+# Add ManageGroups for leaders of Scheduler involvements who have Access (the Access role is granted above).
+for p in q.QueryList('UserRole = 2[Access]'):
+    if p.PeopleId in scheduler_leaders and p.PeopleId not in managegroups_holder_ids:
+        print "  " + p.Name + "\n"
+        model.AddRole(p.PeopleId, "ManageGroups")
 
 
 # ###### OFFICER #######
