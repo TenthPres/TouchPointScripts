@@ -2,17 +2,9 @@
 # Title: Benevity Import
 # Description: Imports Benevity disbursement reports as contributions from the granting foundation, soft-credited to the individual donors, with fees recorded as negative entries.
 # Updates from: GitHub/TenthPres/TouchPointScripts/BenevityImport/BenevityImport.py
-# Version: 0.1.0
+# Version: 1.0.0
 # License: AGPL-3.0
 # Author: James at Tenth
-
-# noinspection PyUnresolvedReferences
-from System import DateTime, Decimal
-# noinspection PyUnresolvedReferences
-from System.Globalization import CultureInfo
-
-###########################################################################
-# Configuration
 
 # Only users with one of these roles may use this tool.
 AllowedRoles = ['Admin', 'Finance']
@@ -53,8 +45,12 @@ BundleType = "Online"
 # Person extra value used to remember manual donor matches for future imports.
 DonorKeyExtraValue = "BenevityDonorKey"
 
-# That's all the configuration.
-###########################################################################
+# ========== DO NOT EDIT BELOW THIS POINT ==========
+
+# noinspection PyUnresolvedReferences
+from System import DateTime, Decimal
+# noinspection PyUnresolvedReferences
+from System.Globalization import CultureInfo
 
 model.Transactional = True
 
@@ -237,7 +233,7 @@ def commit(rows):
 
 
 def uploadForm():
-    print """
+    print("""
 <h2>Benevity Import</h2>
 <p>In the Benevity Causes Portal, download the Disbursement Report CSV, then choose it here (or paste its contents).</p>
 <form method="post" action="/PyScriptForm/""" + model.ScriptName + """">
@@ -245,14 +241,14 @@ def uploadForm():
     <textarea id="csv" name="csv" rows="12" style="width:100%; font-family:monospace;"></textarea>
     <input type="hidden" name="step" value="preview" />
     <button type="submit" class="btn btn-primary">Preview</button>
-</form>"""
+</form>""")
 
 
 def preview(rows):
     blocked = any(len(r['errors']) > 0 and not r['imported'] for r in rows)
-    print "<h2>Benevity Import Preview</h2>"
-    print "<p>Nothing has been saved yet.  Review donor matches below; enter a PeopleId to override or fill in a match.  Manual matches are remembered for future imports.</p>"
-    print '<form method="post" action="/PyScriptForm/{}"><table'.format(model.ScriptName) + ' class="table table-condensed"><tr><th>Disbursement</th><th>Transaction</th><th>Donated</th><th>Amount</th><th>Match</th><th>Fees</th><th>Donor</th><th>Matched By</th><th>PeopleId</th><th>Comment</th><th>Status</th></tr>'
+    print("<h2>Benevity Import Preview</h2>")
+    print("<p>Nothing has been saved yet.  Review donor matches below; enter a PeopleId to override or fill in a match.  Manual matches are remembered for future imports.</p>")
+    print('<form method="post" action="/PyScriptForm/{}"><table'.format(model.ScriptName) + ' class="table table-condensed"><tr><th>Disbursement</th><th>Transaction</th><th>Donated</th><th>Amount</th><th>Match</th><th>Fees</th><th>Donor</th><th>Matched By</th><th>PeopleId</th><th>Comment</th><th>Status</th></tr>')
     for r in rows:
         name = esc((r['first'] + " " + r['last']).strip() or "(anonymous)")
         person = ""
@@ -260,22 +256,22 @@ def preview(rows):
             person = ' &rarr; <a href="/Person2/{0}" target="_blank">{1}</a>'.format(r['pid'], esc(model.GetPerson(r['pid']).Name))
         status = "Already imported" if r['imported'] else (", ".join(r['errors']) or "Ready")
         pidInput = "" if r['imported'] else '<input name="pid_{}" value="{}" size="7" />'.format(esc(r['txId']), r['pid'] or "")
-        print "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+        print("<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
             esc(r['disbursementId']), esc(r['txId']), esc(r['donationDate']), fmt(r['amount']), fmt(r['match']), fmt(r['fees']),
-            name, person, r['matchedBy'], pidInput, esc(r['comment']), esc(status))
-    print "</table>"
-    print '<textarea name="csv" style="display:none;">{}</textarea>'.format(esc(Data.csv))
-    print '<input type="hidden" name="step" value="commit" />'
+            name, person, r['matchedBy'], pidInput, esc(r['comment']), esc(status)))
+    print("</table>")
+    print('<textarea name="csv" style="display:none;">{}</textarea>'.format(esc(Data.csv)))
+    print('<input type="hidden" name="step" value="commit" />')
     if blocked:
-        print '<p class="text-danger">Some rows have errors (see Status).  Fix the configuration at the top of this script and preview again.</p>'
+        print('<p class="text-danger">Some rows have errors (see Status).  Fix the configuration at the top of this script and preview again.</p>')
     else:
-        print '<button type="submit" class="btn btn-primary">Import</button>'
-    print "</form>"
+        print('<button type="submit" class="btn btn-primary">Import</button>')
+    print("</form>")
 
 
 userPerson = model.GetPerson(model.UserPeopleId)
 if not any(userPerson.Users[0].InRole(role) for role in AllowedRoles):
-    print "You do not have access to this tool."
+    print("You do not have access to this tool.")
 
 elif model.HttpMethod == "post" and Data.step == "preview" and Data.csv != "":
     preview(parse(Data.csv))
@@ -283,15 +279,15 @@ elif model.HttpMethod == "post" and Data.step == "preview" and Data.csv != "":
 elif model.HttpMethod == "post" and Data.step == "commit" and Data.csv != "":
     rows = parse(Data.csv)
     if any(len(r['errors']) > 0 and not r['imported'] for r in rows):
-        print "Import blocked: some rows have errors.  Please preview again."
+        print("Import blocked: some rows have errors.  Please preview again.")
     else:
         bundles = commit(rows)
-        print "<h2>Benevity Import Complete</h2><ul>"
+        print("<h2>Benevity Import Complete</h2><ul>")
         for did, bh in bundles.items():
-            print '<li>Disbursement {0}: <a href="/Batches/Detail/{1}">bundle {1}</a> (left open for review)</li>'.format(esc(did), bh.BundleHeaderId)
-        print "</ul>"
+            print('<li>Disbursement {0}: <a href="/Batches/Detail/{1}">bundle {1}</a> (left open for review)</li>'.format(esc(did), bh.BundleHeaderId))
+        print("</ul>")
         if len(bundles) == 0:
-            print "<p>Nothing new to import.</p>"
+            print("<p>Nothing new to import.</p>")
 
 else:
     uploadForm()
