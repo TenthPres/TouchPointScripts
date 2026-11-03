@@ -16,7 +16,7 @@
 #                                 while a children's event (Involvement Type code CHILD) is in the area, from
 #                                 "childBufferMinutes" (default 20) before it to that long after it, or its setup /
 #                                 teardown time if longer.  With no event the space is locked, unless the mapping sets
-#                                 "unreservedState": "unlocked", in which case it is open except around children's
+#                                 "defaultIsLocked": false, in which case it is open except around children's
 #                                 events.
 #   "sql":                        your own SQL that returns WindowStart and WindowEnd columns.  Custom SQL may use
 # the tokens {start} and {end} (yyyy-MM-dd HH:mm:ss) for the period being synced, to avoid reading more than it needs.
@@ -206,19 +206,19 @@ def subtract_windows(windows, blocked):
 
 
 def area_windows(rows, range_start, range_end, before=0, after=0, child_buffer=DEFAULT_CHILD_BUFFER_MINUTES,
-                 unreserved="locked"):
+                 default_is_locked=True):
     """
     rows: dicts with start/end (the reservation, which opens the door), event_start/event_end (the meeting itself),
     setup/teardown minutes, child (bool) and status (approval) for every reservation in an area.
 
     The door is locked around a children's event for `child_buffer` minutes, or its setup/teardown time if that is
-    longer, before and after the meeting.  With unreserved="locked" the door is otherwise open only during ordinary
-    events (padded by before/after); with "unlocked" it is open all the time except for those children's locks.
+    longer, before and after the meeting.  With default_is_locked the door is otherwise open only during ordinary
+    events (padded by before/after); otherwise it is open all the time except for those children's locks.
     """
     delta = datetime.timedelta
     lock = [(r["event_start"] - delta(minutes=max(child_buffer, r["setup"])),
              r["event_end"] + delta(minutes=max(child_buffer, r["teardown"]))) for r in rows if r["child"]]
-    if unreserved == "unlocked":
+    if not default_is_locked:
         unlock = [(range_start, range_end)]
     else:
         unlock = widen([(r["start"], r["end"]) for r in rows if not r["child"] and r["status"] in (None, APPROVED)],
@@ -246,7 +246,7 @@ def fetch_windows(mapping, start, end):
                  "child": bool(r.IsChild), "status": r.ApprovalStatus} for r in q.QuerySql(sql)]
         return area_windows(rows, start, end, before, after,
                             int(mapping.get("childBufferMinutes", DEFAULT_CHILD_BUFFER_MINUTES)),
-                            mapping.get("unreservedState", "locked"))
+                            bool(mapping.get("defaultIsLocked", True)))
     sql = DIRECT_RESERVATION_SQL.format(rid=int(mapping["reservableId"]), start=s, end=e)
     return widen([(to_datetime(r.WindowStart), to_datetime(r.WindowEnd)) for r in q.QuerySql(sql)], before, after)
 
@@ -268,10 +268,10 @@ def run():
         if m["scheduleId"] in seen:
             raise AtriumError("Schedule {} is mapped twice".format(m["scheduleId"]))
         seen.add(m["scheduleId"])
-        if m.get("unreservedState", "locked") not in ("locked", "unlocked"):
-            raise AtriumError("Schedule {}: unreservedState must be 'locked' or 'unlocked'".format(m["scheduleId"]))
-        if m.get("unreservedState") is not None and m.get("restrictedAreaReservableId") is None:
-            raise AtriumError("Schedule {}: unreservedState only applies to restrictedAreaReservableId".format(m["scheduleId"]))
+        if not isinstance(m.get("defaultIsLocked", True), bool):
+            raise AtriumError("Schedule {}: defaultIsLocked must be true or false".format(m["scheduleId"]))
+        if m.get("defaultIsLocked") is not None and m.get("restrictedAreaReservableId") is None:
+            raise AtriumError("Schedule {}: defaultIsLocked only applies to restrictedAreaReservableId".format(m["scheduleId"]))
         if not [k for k in ("reservableId", "restrictedAreaReservableId", "sql") if m.get(k) is not None]:
             raise AtriumError("Schedule {} needs reservableId, restrictedAreaReservableId or sql".format(m["scheduleId"]))
 

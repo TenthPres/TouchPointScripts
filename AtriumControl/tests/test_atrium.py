@@ -375,8 +375,8 @@ class AreaWindowTests(unittest.TestCase):
     def test_no_events_means_locked_by_default(self):
         self.assertEqual(self.windows([]), [])
 
-    def test_no_events_means_open_when_unreserved_is_unlocked(self):
-        self.assertEqual(self.windows([], unreserved="unlocked"), [self.DAY])
+    def test_no_events_means_open_when_default_is_unlocked(self):
+        self.assertEqual(self.windows([], default_is_locked=False), [self.DAY])
 
     def test_children_event_locks_20_minutes_either_side(self):
         rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 17), status=None),
@@ -401,7 +401,7 @@ class AreaWindowTests(unittest.TestCase):
 
     def test_unlocked_default_is_open_except_around_children_events(self):
         rows = [self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), child=True)]
-        self.assertEqual(self.windows(rows, unreserved="unlocked"),
+        self.assertEqual(self.windows(rows, default_is_locked=False),
                          [(D(2026, 11, 2), D(2026, 11, 2, 9, 40)), (D(2026, 11, 2, 11, 20), D(2026, 11, 3))])
 
     def test_unapproved_ordinary_event_does_not_open_the_door(self):
