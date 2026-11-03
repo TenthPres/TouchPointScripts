@@ -41,7 +41,7 @@ import datetime
 import json
 
 try:
-    exec(model.PythonContent("AtriumLib"), globals())
+    exec(model.PythonContent("AtriumLib").replace("\r\n", "\n").replace("\r", "\n"), globals())
 except NameError:  # running under test
     from AtriumLib import *  # noqa
 
