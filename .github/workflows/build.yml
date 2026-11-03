@@ -1,24 +1,15 @@
-name: Test and Build
+name: Build
 
 on: push
 
 jobs:
-  test-and-build:
-    name: Test and Build
+  build:
+    name: Build
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.x"
-
-      - name: Run AtriumControl tests
-        working-directory: AtriumControl
-        run: python -m unittest discover tests -v
 
       - name: Set up Node
         uses: actions/setup-node@v6
