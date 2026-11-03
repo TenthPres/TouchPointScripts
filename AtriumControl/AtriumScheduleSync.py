@@ -151,6 +151,12 @@ def _summary(schedule, wanted, have, start, cycle_days, windows):
             "start": start, "cycleDays": cycle_days, "raw": windows}
 
 
+def display_name(label):
+    """A schedule's name for the HTML report: escaped so markup in a name can't hide it, and never blank."""
+    label = (label or "").strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return label or "(no name)"
+
+
 def plan_schedule(schedule, windows, start, cycle_days):
     """
     Full mode.  Returns None if the schedule already does what we want over the coming cycle, otherwise a dict
@@ -313,7 +319,7 @@ def run():
         print("<p><b>Note:</b> {}</p>".format(n))
     print("<p>{} of {} schedules need changes.</p>".format(len(plans), len(mappings)))
     for p in plans:
-        print("<div>{} (#{}): +{} / -{} periods, {} total</div>".format(p["label"], p["scheduleId"], p["add"], p["remove"], p["windows"]))
+        print("<div>{} (#{}): +{} / -{} periods, {} total</div>".format(display_name(p["label"]), p["scheduleId"], p["add"], p["remove"], p["windows"]))
     if dry:
         return
     if len(plans) > limit:

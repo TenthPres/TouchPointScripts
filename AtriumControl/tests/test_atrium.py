@@ -426,6 +426,12 @@ class AreaWindowTests(unittest.TestCase):
         self.assertNotIn("r.ReservableId", sql)
         self.assertIn("ri.ApprovalStatus", sql)
 
+    def test_display_name_is_never_blank_and_escapes_markup(self):
+        self.assertEqual(SS.display_name("_ Code 01"), "_ Code 01")
+        self.assertEqual(SS.display_name("  Door <A> & B  "), "Door &lt;A&gt; &amp; B")
+        self.assertEqual(SS.display_name(""), "(no name)")
+        self.assertEqual(SS.display_name(None), "(no name)")
+
 
 if __name__ == "__main__":
     unittest.main()
