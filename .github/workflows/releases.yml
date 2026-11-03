@@ -33,3 +33,4 @@ jobs:
             .Builds/NonweeklyMeetings.zip
             .Builds/Pckgd.zip
             .Builds/SchedulerSyncer.zip
+            .Builds/AtriumControl.zip
