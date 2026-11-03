@@ -53,11 +53,16 @@ RESERVATION_LIVE = """
       AND r.ReservationStart < '{end}'
 """
 
+# The reservables mapped by reservableId are services (e.g. "Access: Door 01 Code"), not rooms.  A service is not
+# reserved on its own: it is a ReservationItems row attached to a room's reservation, which supplies the times.  The
+# item has its own approval status, and the room reservation it hangs on must not be pending or denied either.
 DIRECT_RESERVATION_SQL = """
     SELECT r.ReservationStart AS WindowStart, r.ReservationEnd AS WindowEnd
-    FROM Reservations r
+    FROM ReservationItems ri
+        JOIN Reservations r ON ri.ReservationId = r.ReservationId
         LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
-    WHERE r.ReservableId = {rid}
+    WHERE ri.ReservableId = {rid}
+      AND (ri.ApprovalStatus IS NULL OR ri.ApprovalStatus = 1)
       AND (r.ApprovalStatus IS NULL OR r.ApprovalStatus = 1)
 """ + RESERVATION_LIVE
 

@@ -418,6 +418,14 @@ class AreaWindowTests(unittest.TestCase):
             self.assertNotIn("Canceled", sql)
             self.assertIn("DidNotMeet", sql)
 
+    def test_reservable_id_mappings_read_services_not_rooms(self):
+        # Services are ReservationItems attached to a reservation, not Reservations rows of their own.
+        sql = SS.DIRECT_RESERVATION_SQL
+        self.assertIn("FROM ReservationItems ri", sql)
+        self.assertIn("ri.ReservableId = {rid}", sql)
+        self.assertNotIn("r.ReservableId", sql)
+        self.assertIn("ri.ApprovalStatus", sql)
+
 
 if __name__ == "__main__":
     unittest.main()
