@@ -426,6 +426,18 @@ class AreaWindowTests(unittest.TestCase):
         self.assertNotIn("r.ReservableId", sql)
         self.assertIn("ri.ApprovalStatus", sql)
 
+    def test_service_window_spans_every_reservation_of_the_meeting(self):
+        # Setup/teardown sit on each room's reservation; the service may be on a room that has none of its own.
+        sql = SS.DIRECT_RESERVATION_SQL
+        self.assertIn("MIN(s.ReservationStart)", sql)
+        self.assertIn("MAX(s.ReservationEnd)", sql)
+        self.assertIn("s.MeetingId = r.MeetingId", sql)
+        self.assertIn("COALESCE(span.SpanStart, r.ReservationStart)", sql)
+        self.assertIn("COALESCE(span.SpanEnd, r.ReservationEnd)", sql)
+        self.assertIn("x.WindowEnd > '{start}'", sql)
+        # It must still format cleanly with the placeholders fetch_windows supplies.
+        SS.DIRECT_RESERVATION_SQL.format(rid=96, start="2026-11-04 00:00:00", end="2026-11-11 00:00:00")
+
     def test_display_name_is_never_blank_and_escapes_markup(self):
         self.assertEqual(SS.display_name("_ Code 01"), "_ Code 01")
         self.assertEqual(SS.display_name("  Door <A> & B  "), "Door &lt;A&gt; &amp; B")

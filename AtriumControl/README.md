@@ -44,6 +44,9 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
 
 ## Schedule mappings
 - `reservableId`: the door is open whenever that reservable is reserved (the "Access: Door 01 Code" style reservables).
+  These are services attached to a room reservation, so the door opens for the meeting's whole reserved span: its
+  earliest approved reservation start (including setup) to its latest approved reservation end (including teardown),
+  across all of the meeting's rooms.
 - `restrictedAreaReservableId`: the door is open during ordinary events in that area or any space beneath it, and
   locked while a children's event (a meeting of an involvement whose Involvement Type code is `CHILD`) is in the area.
   Padding (`minutesBefore`/`minutesAfter`) widens ordinary events only.

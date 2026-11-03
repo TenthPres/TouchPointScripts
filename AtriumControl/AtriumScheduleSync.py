@@ -56,15 +56,32 @@ RESERVATION_LIVE = """
 # The reservables mapped by reservableId are services (e.g. "Access: Door 01 Code"), not rooms.  A service is not
 # reserved on its own: it is a ReservationItems row attached to a room's reservation, which supplies the times.  The
 # item has its own approval status, and the room reservation it hangs on must not be pending or denied either.
+# Setup and teardown belong to each room reservation, and a meeting can have several (the service is on one room, the
+# setup crew's time on another), so the window is the whole meeting's reserved span: its earliest approved
+# ReservationStart to its latest approved ReservationEnd.  An ad hoc reservation with no meeting uses its own times.
 DIRECT_RESERVATION_SQL = """
-    SELECT r.ReservationStart AS WindowStart, r.ReservationEnd AS WindowEnd
-    FROM ReservationItems ri
-        JOIN Reservations r ON ri.ReservationId = r.ReservationId
-        LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
-    WHERE ri.ReservableId = {rid}
-      AND (ri.ApprovalStatus IS NULL OR ri.ApprovalStatus = 1)
-      AND (r.ApprovalStatus IS NULL OR r.ApprovalStatus = 1)
-""" + RESERVATION_LIVE
+    SELECT x.WindowStart, x.WindowEnd
+    FROM (
+        SELECT COALESCE(span.SpanStart, r.ReservationStart) AS WindowStart,
+               COALESCE(span.SpanEnd, r.ReservationEnd) AS WindowEnd,
+               COALESCE(m.DidNotMeet, 0) AS DidNotMeet
+        FROM ReservationItems ri
+            JOIN Reservations r ON ri.ReservationId = r.ReservationId
+            LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
+            OUTER APPLY (
+                SELECT MIN(s.ReservationStart) AS SpanStart, MAX(s.ReservationEnd) AS SpanEnd
+                FROM Reservations s
+                WHERE s.MeetingId = r.MeetingId
+                  AND (s.ApprovalStatus IS NULL OR s.ApprovalStatus = 1)
+            ) span
+        WHERE ri.ReservableId = {rid}
+          AND (ri.ApprovalStatus IS NULL OR ri.ApprovalStatus = 1)
+          AND (r.ApprovalStatus IS NULL OR r.ApprovalStatus = 1)
+    ) x
+    WHERE x.DidNotMeet = 0
+      AND x.WindowEnd > '{start}'
+      AND x.WindowStart < '{end}'
+"""
 
 # An area is the reservable plus everything beneath it.  IsChild marks meetings of involvements whose Involvement Type
 # code is CHILD.  Unlike a plain event, a child event is honoured even while its approval is still pending, because
