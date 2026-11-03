@@ -10,12 +10,20 @@
 
 # Do not make edits to this file.  They will be overwritten during updates.
 
-# Each mapping in AtriumConfig.json -> "schedules" -> "mappings" ties one Atrium schedule to either a TouchPoint
-# reservable ("reservableId") or your own SQL ("sql") that returns WindowStart and WindowEnd columns.  Custom SQL may use
+# Each mapping in AtriumConfig.json -> "schedules" -> "mappings" ties one Atrium schedule to one of:
+#   "reservableId":               open whenever that reservable is reserved (e.g. an "Access: Door 01 Code" reservable).
+#   "restrictedAreaReservableId": open during ordinary events anywhere in that area or its child spaces, but locked
+#                                 while a children's event (Involvement Type code CHILD) is in the area, from
+#                                 "childBufferMinutes" (default 20) before it to that long after it, or its setup /
+#                                 teardown time if longer.  With no event the space is locked, unless the mapping sets
+#                                 "unreservedState": "unlocked", in which case it is open except around children's
+#                                 events.
+#   "sql":                        your own SQL that returns WindowStart and WindowEnd columns.  Custom SQL may use
 # the tokens {start} and {end} (yyyy-MM-dd HH:mm:ss) for the period being synced, to avoid reading more than it needs.
 #
 #   {"cycleDays": 7, "horizonHours": 4, "mappings": [
 #       {"scheduleId": 30, "reservableId": 123, "minutesBefore": 15, "minutesAfter": 15},
+#       {"scheduleId": 24, "restrictedAreaReservableId": 27, "minutesBefore": 15, "minutesAfter": 15},
 #       {"scheduleId": 31, "sql": "SELECT StartAt AS WindowStart, EndAt AS WindowEnd FROM ... WHERE EndAt > '{start}' AND StartAt < '{end}'"}]}
 #
 # Two modes, chosen by Data.AtriumScheduleMode before the script is called:
@@ -37,17 +45,48 @@ try:
 except NameError:  # running under test
     from AtriumLib import *  # noqa
 
-DEFAULT_RESERVATION_SQL = """
-    SELECT MIN(DATEADD(MINUTE, -{before}, r.ReservationStart)) AS WindowStart,
-           MAX(DATEADD(MINUTE, {after}, r.ReservationEnd)) AS WindowEnd
-    FROM Reservations r
-        JOIN Meetings m ON r.MeetingId = m.MeetingId
-    WHERE r.ReservableId = {rid}
-      AND m.Canceled = 0
-      AND DATEADD(MINUTE, {after}, r.ReservationEnd) > '{start}'
-      AND DATEADD(MINUTE, -{before}, r.ReservationStart) < '{end}'
-    GROUP BY r.MeetingId
+# Reservations that have been approved (or never needed approval) and whose meeting is still happening.  A reservation
+# with no meeting (an ad hoc booking) still counts as an event.
+RESERVATION_LIVE = """
+      AND COALESCE(m.DidNotMeet, 0) = 0
+      AND r.ReservationEnd > '{start}'
+      AND r.ReservationStart < '{end}'
 """
+
+DIRECT_RESERVATION_SQL = """
+    SELECT r.ReservationStart AS WindowStart, r.ReservationEnd AS WindowEnd
+    FROM Reservations r
+        LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
+    WHERE r.ReservableId = {rid}
+      AND (r.ApprovalStatus IS NULL OR r.ApprovalStatus = 1)
+""" + RESERVATION_LIVE
+
+# An area is the reservable plus everything beneath it.  IsChild marks meetings of involvements whose Involvement Type
+# code is CHILD.  Unlike a plain event, a child event is honoured even while its approval is still pending, because
+# the cautious outcome there is a locked door.
+AREA_RESERVATION_SQL = """
+    WITH Area AS (
+        SELECT ReservableId FROM Reservable WHERE ReservableId = {area}
+        UNION ALL
+        SELECT c.ReservableId FROM Reservable c JOIN Area a ON c.ParentId = a.ReservableId WHERE c.IsDeleted = 0
+    )
+    SELECT r.ReservationStart AS WindowStart, r.ReservationEnd AS WindowEnd,
+           COALESCE(r.MeetingStart, r.ReservationStart) AS EventStart,
+           COALESCE(r.MeetingEnd, r.ReservationEnd) AS EventEnd,
+           COALESCE(r.SetupMinutes, 0) AS SetupMinutes, COALESCE(r.TeardownMinutes, 0) AS TeardownMinutes,
+           CASE WHEN ot.Code = '{child_code}' THEN 1 ELSE 0 END AS IsChild,
+           r.ApprovalStatus AS ApprovalStatus
+    FROM Reservations r
+        JOIN Area ON r.ReservableId = Area.ReservableId
+        LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
+        LEFT JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+        LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
+    WHERE (r.ApprovalStatus IS NULL OR r.ApprovalStatus IN (0, 1))
+""" + RESERVATION_LIVE
+
+CHILD_INVOLVEMENT_TYPE = "CHILD"
+DEFAULT_CHILD_BUFFER_MINUTES = 20  # how long before and after a children's event its space stays locked, at minimum
+APPROVED = 1
 
 NEAR_RUN_GAP = datetime.timedelta(minutes=50)  # the hourly job may be triggered more often than hourly; run once per hour
 FMT = "%Y-%m-%d %H:%M:%S"
@@ -141,14 +180,75 @@ def plan_schedule_near(schedule, fresh, now, horizon_hours, cycle_days):
     return _summary(schedule, wanted, have, start, cycle_days, desired), None
 
 
-def fetch_windows(mapping, start, end):
-    s, e = start.strftime(FMT), end.strftime(FMT)
-    if mapping.get("sql"):
-        sql = mapping["sql"].replace("{start}", s).replace("{end}", e)
+def widen(windows, before, after):
+    delta = datetime.timedelta
+    return [(a - delta(minutes=before), b + delta(minutes=after)) for a, b in windows]
+
+
+def subtract_windows(windows, blocked):
+    """Removes every blocked (start, end) span from `windows`.  Both are lists of datetime pairs."""
+    out = []
+    for a, b in windows:
+        pieces = [(a, b)]
+        for x, y in blocked:
+            nxt = []
+            for p, q_ in pieces:
+                if y <= p or x >= q_:
+                    nxt.append((p, q_))
+                    continue
+                if x > p:
+                    nxt.append((p, x))
+                if y < q_:
+                    nxt.append((y, q_))
+            pieces = nxt
+        out.extend(pieces)
+    return out
+
+
+def area_windows(rows, range_start, range_end, before=0, after=0, child_buffer=DEFAULT_CHILD_BUFFER_MINUTES,
+                 unreserved="locked"):
+    """
+    rows: dicts with start/end (the reservation, which opens the door), event_start/event_end (the meeting itself),
+    setup/teardown minutes, child (bool) and status (approval) for every reservation in an area.
+
+    The door is locked around a children's event for `child_buffer` minutes, or its setup/teardown time if that is
+    longer, before and after the meeting.  With unreserved="locked" the door is otherwise open only during ordinary
+    events (padded by before/after); with "unlocked" it is open all the time except for those children's locks.
+    """
+    delta = datetime.timedelta
+    lock = [(r["event_start"] - delta(minutes=max(child_buffer, r["setup"])),
+             r["event_end"] + delta(minutes=max(child_buffer, r["teardown"]))) for r in rows if r["child"]]
+    if unreserved == "unlocked":
+        unlock = [(range_start, range_end)]
     else:
-        sql = DEFAULT_RESERVATION_SQL.format(rid=int(mapping["reservableId"]), before=int(mapping.get("minutesBefore", 0)),
-                                             after=int(mapping.get("minutesAfter", 0)), start=s, end=e)
-    return [(to_datetime(r.WindowStart), to_datetime(r.WindowEnd)) for r in q.QuerySql(sql)]
+        unlock = widen([(r["start"], r["end"]) for r in rows if not r["child"] and r["status"] in (None, APPROVED)],
+                       before, after)
+    return subtract_windows(unlock, lock)
+
+
+def fetch_windows(mapping, start, end):
+    before = int(mapping.get("minutesBefore", 0))
+    after = int(mapping.get("minutesAfter", 0))
+    delta = datetime.timedelta
+    # Reach far enough that a reservation just outside the range, whose padding spills into it, is still seen.
+    s = (start - delta(minutes=after)).strftime(FMT)
+    e = (end + delta(minutes=before)).strftime(FMT)
+    if mapping.get("sql"):
+        sql = mapping["sql"].replace("{start}", start.strftime(FMT)).replace("{end}", end.strftime(FMT))
+        return [(to_datetime(r.WindowStart), to_datetime(r.WindowEnd)) for r in q.QuerySql(sql)]
+    if mapping.get("restrictedAreaReservableId") is not None:
+        wide = delta(days=1)  # a children's event's setup/teardown can reach well outside the range
+        sql = AREA_RESERVATION_SQL.format(area=int(mapping["restrictedAreaReservableId"]), child_code=CHILD_INVOLVEMENT_TYPE,
+                                          start=(start - wide).strftime(FMT), end=(end + wide).strftime(FMT))
+        rows = [{"start": to_datetime(r.WindowStart), "end": to_datetime(r.WindowEnd),
+                 "event_start": to_datetime(r.EventStart), "event_end": to_datetime(r.EventEnd),
+                 "setup": int(r.SetupMinutes or 0), "teardown": int(r.TeardownMinutes or 0),
+                 "child": bool(r.IsChild), "status": r.ApprovalStatus} for r in q.QuerySql(sql)]
+        return area_windows(rows, start, end, before, after,
+                            int(mapping.get("childBufferMinutes", DEFAULT_CHILD_BUFFER_MINUTES)),
+                            mapping.get("unreservedState", "locked"))
+    sql = DIRECT_RESERVATION_SQL.format(rid=int(mapping["reservableId"]), start=s, end=e)
+    return widen([(to_datetime(r.WindowStart), to_datetime(r.WindowEnd)) for r in q.QuerySql(sql)], before, after)
 
 
 def run():
@@ -168,6 +268,12 @@ def run():
         if m["scheduleId"] in seen:
             raise AtriumError("Schedule {} is mapped twice".format(m["scheduleId"]))
         seen.add(m["scheduleId"])
+        if m.get("unreservedState", "locked") not in ("locked", "unlocked"):
+            raise AtriumError("Schedule {}: unreservedState must be 'locked' or 'unlocked'".format(m["scheduleId"]))
+        if m.get("unreservedState") is not None and m.get("restrictedAreaReservableId") is None:
+            raise AtriumError("Schedule {}: unreservedState only applies to restrictedAreaReservableId".format(m["scheduleId"]))
+        if not [k for k in ("reservableId", "restrictedAreaReservableId", "sql") if m.get(k) is not None]:
+            raise AtriumError("Schedule {} needs reservableId, restrictedAreaReservableId or sql".format(m["scheduleId"]))
 
     now = datetime.datetime.now()
     stamp_name = "AtriumScheduleNearLastRun.txt"

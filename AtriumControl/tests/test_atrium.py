@@ -357,5 +357,67 @@ class ScheduleTests(unittest.TestCase):
             P("http://x", "u", "p", transport=None, master_serial="S").set_schedule_windows(30, self.START, 7, [])
 
 
+class AreaWindowTests(unittest.TestCase):
+    DAY = (D(2026, 11, 2), D(2026, 11, 3))
+
+    @staticmethod
+    def row(start, end, child=False, status=1, setup=0, teardown=0):
+        return {"start": start, "end": end, "event_start": start, "event_end": end, "setup": setup,
+                "teardown": teardown, "child": child, "status": status}
+
+    def windows(self, rows, **kw):
+        return SS.area_windows(rows, self.DAY[0], self.DAY[1], **kw)
+
+    def test_ordinary_event_opens_the_door_with_padding(self):
+        rows = [self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 12))]
+        self.assertEqual(self.windows(rows, before=15, after=10), [(D(2026, 11, 2, 9, 45), D(2026, 11, 2, 12, 10))])
+
+    def test_no_events_means_locked_by_default(self):
+        self.assertEqual(self.windows([]), [])
+
+    def test_no_events_means_open_when_unreserved_is_unlocked(self):
+        self.assertEqual(self.windows([], unreserved="unlocked"), [self.DAY])
+
+    def test_children_event_locks_20_minutes_either_side(self):
+        rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 17), status=None),
+                self.row(D(2026, 11, 2, 12), D(2026, 11, 2, 13), child=True)]
+        self.assertEqual(self.windows(rows), [(D(2026, 11, 2, 9), D(2026, 11, 2, 11, 40)),
+                                              (D(2026, 11, 2, 13, 20), D(2026, 11, 2, 17))])
+
+    def test_longer_setup_and_teardown_win_over_the_buffer(self):
+        rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 17)),
+                self.row(D(2026, 11, 2, 12), D(2026, 11, 2, 13), child=True, setup=45, teardown=10)]
+        self.assertEqual(self.windows(rows), [(D(2026, 11, 2, 9), D(2026, 11, 2, 11, 15)),
+                                              (D(2026, 11, 2, 13, 20), D(2026, 11, 2, 17))])
+
+    def test_buffer_is_configurable(self):
+        rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 17)),
+                self.row(D(2026, 11, 2, 12), D(2026, 11, 2, 13), child=True)]
+        self.assertEqual(self.windows(rows, child_buffer=0), [(D(2026, 11, 2, 9), D(2026, 11, 2, 12)),
+                                                              (D(2026, 11, 2, 13), D(2026, 11, 2, 17))])
+
+    def test_children_event_alone_gives_no_windows_when_locked_by_default(self):
+        self.assertEqual(self.windows([self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), child=True)], before=15, after=15), [])
+
+    def test_unlocked_default_is_open_except_around_children_events(self):
+        rows = [self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), child=True)]
+        self.assertEqual(self.windows(rows, unreserved="unlocked"),
+                         [(D(2026, 11, 2), D(2026, 11, 2, 9, 40)), (D(2026, 11, 2, 11, 20), D(2026, 11, 3))])
+
+    def test_unapproved_ordinary_event_does_not_open_the_door(self):
+        self.assertEqual(self.windows([self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), status=0)]), [])
+
+    def test_pending_children_event_still_locks(self):
+        rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 11)),
+                self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), child=True, status=0)]
+        self.assertEqual(self.windows(rows, child_buffer=0), [(D(2026, 11, 2, 9), D(2026, 11, 2, 10))])
+
+    def test_sql_matches_bvcms_schema(self):
+        # Meetings has no Canceled column; DidNotMeet is what marks a meeting that didn't happen.
+        for sql in (SS.DIRECT_RESERVATION_SQL, SS.AREA_RESERVATION_SQL):
+            self.assertNotIn("Canceled", sql)
+            self.assertIn("DidNotMeet", sql)
+
+
 if __name__ == "__main__":
     unittest.main()

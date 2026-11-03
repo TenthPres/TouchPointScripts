@@ -34,12 +34,26 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
     "horizonHours": 4,
     "mappings": [
       {"scheduleId": 30, "reservableId": 123, "minutesBefore": 15, "minutesAfter": 15},
+      {"scheduleId": 24, "restrictedAreaReservableId": 27, "minutesBefore": 15, "minutesAfter": 15},
       {"scheduleId": 31, "sql": "SELECT StartAt AS WindowStart, EndAt AS WindowEnd FROM ..."}
     ]
   },
   "doors": {"Front Doors": {"serial": "00009F90", "id": 0}}
 }
 ```
+
+## Schedule mappings
+- `reservableId`: the door is open whenever that reservable is reserved (the "Access: Door 01 Code" style reservables).
+- `restrictedAreaReservableId`: the door is open during ordinary events in that area or any space beneath it, and
+  locked while a children's event (a meeting of an involvement whose Involvement Type code is `CHILD`) is in the area.
+  Padding (`minutesBefore`/`minutesAfter`) widens ordinary events only.
+  - The lock begins `childBufferMinutes` (default 20) before the children's event and ends that long after it, or
+    covers the reservation's setup/teardown time if that is longer.
+  - `unreservedState` sets what happens when nothing is reserved: `"locked"` (the default) or `"unlocked"`, which keeps
+    the space open except around children's events.
+- Cancelled meetings (`DidNotMeet`) and denied reservations are ignored.  An ordinary event opens a door only once
+  approved (or if it never needed approval); a pending children's event already locks it.
+- `sql`: your own query returning `WindowStart` and `WindowEnd`.
 
 ## Safety properties
 - **Only linked users are touched.**  The link is the Atrium user's GUID, stored on the person as a text Extra Value
