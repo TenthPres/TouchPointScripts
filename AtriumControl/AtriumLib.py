@@ -2,7 +2,7 @@
 # Title: Atrium Library
 # Description: Shared client for the CDVI Atrium SDK, used by the other Atrium scripts.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumLib.py
-# Version: 0.1.7
+# Version: 0.1.8
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -535,6 +535,10 @@ def parse_user(rec):
             levels.append(v)
     first = rec.get("label3", "")
     last = rec.get("label4", "")
+    # The user's option flags (bit5..bit20) are what separate an ordinary cardholder from one with extra privileges, such
+    # as logging in to Atrium itself.  Which flag is which isn't documented, so just report which are set.
+    options = sorted(int(k[3:]) for k, v in rec.items()
+                     if v == "1" and re.match(r"^bit\d+$", k) and 5 <= int(k[3:]) <= 20)
     return {
         "id": int(rec["id"]),
         "guid": rec.get("guid2", ""),
@@ -545,6 +549,7 @@ def parse_user(rec):
         "activation": hex_to_epoch(rec.get("utc_time22")),
         "expiration": hex_to_epoch(rec.get("utc_time23")),
         "access_levels": levels,
+        "options": options,
     }
 
 

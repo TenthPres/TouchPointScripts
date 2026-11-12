@@ -77,6 +77,20 @@ class RequestTests(unittest.TestCase):
                           "word24_2": "3", "word24_3": "65535", "word24_4": "65535"})
         self.assertEqual((u["access_levels"], u["expiration"], u["enabled"]), ([7, 3], None, True))
 
+    def test_parse_user_reports_which_option_flags_are_set(self):
+        # The flag pattern of a live user who can log in to Atrium (no access levels), and of an ordinary cardholder.
+        login_user = {"id": "247", "valid": "1", "protect": "0", "bit5": "1", "bit6": "0", "bit15": "0", "bit18": "1",
+                      "bit20": "0", "word24_0": "65535"}
+        ordinary = {"id": "3", "valid": "1", "bit5": "0", "bit6": "0", "bit15": "0", "bit18": "0", "bit20": "0",
+                    "word24_0": "1"}
+        self.assertEqual(L.parse_user(login_user)["options"], [5, 18])
+        self.assertEqual(L.parse_user(ordinary)["options"], [])
+        self.assertEqual(L.parse_user({"id": "1"})["options"], [])
+
+    def test_only_option_bits_five_to_twenty_count(self):
+        u = L.parse_user({"id": "1", "bit4": "1", "bit21": "1", "word21": "1", "bit5": "1", "bit20": "1", "bit100": "1"})
+        self.assertEqual(u["options"], [5, 20])
+
     def test_dangerous_commands_need_confirmation(self):
         c = L.AtriumClient("http://x", "u", "p", transport=None)
         for call in (lambda: c.start_lockdown(), lambda: c.stop_lockdown(), lambda: c.momentary_unlock("S", 1, 5),
@@ -334,6 +348,34 @@ class PlannerTests(unittest.TestCase):
         acts, _ = S.plan_sync(self.q(2, [7], "Bo", "Ray"), users, links, {7}, OPTS)
         self.assertEqual(acts[0]["changes"], {"access_levels": [], "enabled": False})
         self.assertNotIn("delete", [a["kind"] for a in acts])
+
+    def test_a_user_with_option_flags_and_no_levels_is_not_disabled(self):
+        # Linked, enabled, no access levels, but able to log in to Atrium: nothing to remove, and not to be disabled.
+        login_user = dict(user(10, "Ann", "Lee", levels=[]), options=[5, 18])
+        acts, warn = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, [login_user], {1: "G10"}, {7}, self.off())
+        self.assertEqual(acts, [])
+
+    def test_a_user_with_option_flags_still_loses_the_managed_levels_but_stays_enabled(self):
+        login_user = dict(user(10, "Ann", "Lee", levels=[3, 7]), options=[5, 18])
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, [login_user], {1: "G10"}, {7}, self.off())
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [3]}}])
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}},
+                              [dict(user(10, "Ann", "Lee", levels=[7]), options=[5])], {1: "G10"}, {7}, self.off())
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": []}}])
+
+    def test_a_user_without_option_flags_is_still_disabled(self):
+        ordinary = dict(user(10, "Bo", "Ray", levels=[]), options=[])
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, [ordinary], {1: "G10"}, {7}, self.off())
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"enabled": False}}])
+
+    def test_disabling_users_with_option_flags_can_be_allowed(self):
+        login_user = dict(user(10, "Ann", "Lee", levels=[]), options=[5, 18])
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, [login_user], {1: "G10"}, {7},
+                              self.off(disableUsersWithOptions=True))
+        self.assertEqual(acts[0]["changes"], {"enabled": False})
+
+    def test_users_with_option_flags_are_protected_by_default(self):
+        self.assertFalse(S.DEFAULT_CONFIG["disableUsersWithOptions"])
 
     def test_disabled_atrium_users_are_ignored_by_default(self):
         self.assertTrue(S.DEFAULT_CONFIG["ignoreDisabledUsers"])

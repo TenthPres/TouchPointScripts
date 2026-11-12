@@ -31,6 +31,7 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   "createUsers": false,
   "syncNames": true,
   "disableWhenNoAccess": true,
+  "disableUsersWithOptions": false,
   "ignoreDisabledUsers": true,
   "rules": [
     {"name": "Staff", "accessLevel": "Staff", "search": "StatusFlag = 'F10'"},
@@ -69,6 +70,10 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   claiming one GUID are both left alone; Atrium users it didn't create or link are never touched.
 - **Access levels outside your rules are preserved** on linked users.
 - **Nothing is deleted.**  People who stop qualifying lose the levels your rules manage and (optionally) are disabled.
+- **Users with option flags are never disabled** unless `disableUsersWithOptions` is true.  An Atrium user's option flags
+  (`bit5` to `bit20` in the record) mark privileges beyond a card, such as being able to log in to Atrium, and disabling
+  such a user would take that away.  Which flag is which isn't documented, so any flag set counts.  A user like that
+  still loses the access levels the rules manage; they just stay enabled.
 - **Disabled Atrium users are left alone** while `ignoreDisabledUsers` is true (the default): a linked user who is
   already disabled and no longer qualifies is not touched, and doesn't count towards the "nobody qualifies" checks.
   They are still synced if TouchPoint asks for them: a disabled user whose person qualifies is re-enabled and given the

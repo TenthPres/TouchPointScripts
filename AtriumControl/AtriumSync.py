@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.3.1
+# Version: 0.3.2
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -41,6 +41,7 @@ DEFAULT_CONFIG = {
     "createUsers": False,  # a person nobody in Atrium matches is reported, not created, until this is true
     "syncNames": True,
     "disableWhenNoAccess": True,
+    "disableUsersWithOptions": False,  # users with option flags set (e.g. who can log in to Atrium) are never disabled
     "ignoreDisabledUsers": True,  # a disabled Atrium user is left alone unless it matches someone TouchPoint asks for
     "allowEmptyRun": False,  # a run where nobody qualifies is almost always a broken search, so refuse unless allowed
     "rules": [],  # [{"name": "Staff", "accessLevel": "Staff", "search": "StatusFlag = 'F10'"}]
@@ -225,7 +226,10 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
         changes = {}
         if keep != u["access_levels"]:
             changes["access_levels"] = keep
-        if options.get("disableWhenNoAccess") and not keep and u["enabled"]:
+        # A user with option flags set has privileges beyond a card (for instance logging in to Atrium), so having no
+        # access levels isn't a reason to disable them; they still lose the levels this sync manages.
+        privileged = bool(u.get("options")) and not options.get("disableUsersWithOptions")
+        if options.get("disableWhenNoAccess") and not keep and u["enabled"] and not privileged:
             changes["enabled"] = False
         if changes:
             actions.append({"kind": "update", "peopleId": pid, "userId": u["id"], "changes": changes})
