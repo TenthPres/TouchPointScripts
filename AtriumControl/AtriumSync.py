@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.5
+# Version: 0.2.6
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -23,6 +23,7 @@
 global model, Data, q
 
 import datetime
+import difflib
 import json
 import re
 
@@ -52,6 +53,42 @@ DEFAULT_CONFIG = {
 
 def name_key(first, last):
     return (ascii_name(first).lower(), ascii_name(last).lower())
+
+
+def _plain(value):
+    return ascii_name(value).lower()
+
+
+def describe_person(pid, want):
+    """A person as the warnings name them: enough to find them in TouchPoint, including a nickname that differs."""
+    name = "{} {}".format(want["first"], want["last"]).strip()
+    if want.get("nick") and _plain(want["nick"]) != _plain(want["first"]):
+        name += ", goes by {}".format(want["nick"])
+    return "Person {} ({})".format(pid, name)
+
+
+def describe_user(u):
+    """An Atrium user as the warnings name them: the id to find them by and the GUID that makes the link."""
+    return '#{} "{}" (GUID {})'.format(u["id"], u["name"], u["guid"])
+
+
+def suggest_users(want, unclaimed, limit=3):
+    """
+    The unlinked Atrium users most likely to be this person under a different spelling, best first.  Someone's formal
+    or nickname may not be what Atrium holds, but their surname usually is, so same-surname users come first, ranked by
+    how close their first name is; failing that, users whose surname and first name are both close.
+    """
+    firsts = [_plain(want["first"])] + ([_plain(want["nick"])] if want.get("nick") else [])
+    last = _plain(want["last"])
+
+    def first_score(u):
+        return max(difflib.SequenceMatcher(None, f, _plain(u["first_name"])).ratio() for f in firsts)
+
+    pool = [u for u in unclaimed if _plain(u["last_name"]) == last]
+    if not pool:
+        pool = [u for u in unclaimed
+                if difflib.SequenceMatcher(None, last, _plain(u["last_name"])).ratio() >= 0.8 and first_score(u) >= 0.6]
+    return sorted(pool, key=first_score, reverse=True)[:limit]
 
 
 def plan_sync(qualified, users, links, managed_levels, options, empty_levels=()):
@@ -104,6 +141,8 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=())
         return actions, warnings
 
     unlinked_by_name = {}
+    adopted = set()  # GUIDs of Atrium users this plan has already linked to someone
+    ev = options.get("guidExtraValue", "AtriumGuid")
     for u in users:
         if u["guid"] not in claimed:
             unlinked_by_name.setdefault(name_key(u["first_name"], u["last_name"]), []).append(u)
@@ -123,21 +162,28 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=())
                 nick_key = name_key(want["nick"], want["last"])
                 if unlinked_by_name.get(nick_key):
                     match_key, candidates = nick_key, unlinked_by_name[nick_key]
+            by_hand = "To link by hand, put the right user's GUID in the {} Extra Value on person {}.".format(ev, pid)
             if candidates and not options.get("linkByName"):
-                warnings.append("Person {} has the same name as an existing, unlinked Atrium user; not creating a "
-                                "duplicate.  Link them (linkByName) or resolve by hand.".format(pid))
+                warnings.append("{} has the same name as an existing, unlinked Atrium user: {}.  Not creating a "
+                                "duplicate; turn on linkByName to adopt them.  {}".format(
+                                    describe_person(pid, want), "; ".join(describe_user(c) for c in candidates), by_hand))
                 continue
             if len(candidates) > 1:
-                warnings.append("Person {} matches {} unlinked Atrium users by name; skipping.".format(pid, len(candidates)))
+                warnings.append("{} matches {} unlinked Atrium users by name, so none was chosen: {}.  {}".format(
+                    describe_person(pid, want), len(candidates), "; ".join(describe_user(c) for c in candidates), by_hand))
                 continue
             if len(candidates) == 1:
                 u = candidates[0]
                 unlinked_by_name[match_key] = []
+                adopted.add(u["guid"])
                 actions.append({"kind": "link", "peopleId": pid, "guid": u["guid"]})
             else:
                 if not options.get("createUsers"):
-                    warnings.append("Person {} has no matching Atrium user, and creating users is turned off "
-                                    "(createUsers); skipping.".format(pid))
+                    close = suggest_users(want, [c for c in users if c["guid"] not in claimed and c["guid"] not in adopted])
+                    hint = ("Closest unlinked Atrium users: " + "; ".join(describe_user(c) for c in close) + "."
+                            if close else "No unlinked Atrium user looks close.")
+                    warnings.append("{} has no matching Atrium user, and creating users is turned off (createUsers).  "
+                                    "{}  {}".format(describe_person(pid, want), hint, by_hand))
                     continue
                 levels = _unique(want["levels"])
                 if len(levels) > ACCESS_LEVEL_SLOTS:
@@ -359,7 +405,7 @@ def run():
     print("<h3>Atrium Sync{}</h3>".format(" (dry run)" if dry else ""))
     print("<p>Timing: {}</p>".format(timer.summary()))
     for w in warnings:
-        print("<p><b>Warning:</b> {}</p>".format(w))
+        print("<p><b>Warning:</b> {}</p>".format(w.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")))
     print("<p>{} qualifying people, {} planned actions ({} Atrium writes).</p>".format(len(qualified), len(actions), writes))
     for a in actions:
         print("<div>{}</div>".format(json.dumps(a)))
