@@ -572,6 +572,35 @@ class RecordWalkTests(unittest.TestCase):
             list(client.iter_records("user"))
 
 
+LEVELS_PAGE = ('<?xml version="1.0" encoding="utf-8"?><ACC_LVLS><ACC_LVL id="0" lbl="Staff" state="1" />'
+               '<ACC_LVL id="1" lbl="Access Level Always" state="1" /><ACC_LVL id="3" lbl="ChildrenYouth" state="1" />'
+               '<FOOTER per_page="50" cur_page="1" total_items="{}" /></ACC_LVLS>')
+
+
+class AccessLevelListTests(unittest.TestCase):
+    def client(self, total):
+        c = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        calls = []
+
+        def get_xml(path, params=None):
+            calls.append(path)
+            return L.ET.fromstring(LEVELS_PAGE.format(total))
+
+        c.get_xml = get_xml
+        return c, calls
+
+    def test_levels_come_from_the_list_page_in_one_request(self):
+        c, calls = self.client(3)
+        self.assertEqual(c.list_access_levels(), [{"id": 0, "label": "Staff"}, {"id": 1, "label": "Access Level Always"},
+                                                  {"id": 3, "label": "ChildrenYouth"}])
+        self.assertEqual(calls, ["access_levels.xml"])
+
+    def test_a_paged_list_is_an_error_not_a_short_list(self):
+        c, _ = self.client(120)
+        with self.assertRaises(L.AtriumError):
+            c.list_access_levels()
+
+
 class TimeBudgetTests(unittest.TestCase):
     class Clock(object):
         def __init__(self):

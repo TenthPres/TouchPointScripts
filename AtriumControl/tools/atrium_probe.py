@@ -6,6 +6,8 @@ shell history.  Only a fixed allowlist of read-only requests can be sent; anythi
 
 Usage:
     python atrium_probe.py get users.xml
+    python atrium_probe.py sdk-read 00009F90 access_lvl cfg 0
+    python atrium_probe.py sdk-range 00009F90 access_lvl cfg 8 12
     python atrium_probe.py post records_sdk.xml list_records obj_type=12
 """
 
@@ -107,7 +109,20 @@ def sdk_read(self, serial, obj_type, rec, obj_id):
         return decrypt(self.key, r.read().decode("latin-1"))
 
 
+def sdk_range(self, serial, obj_type, rec, id_min, id_max):
+    """The range form of the SDK record read, as AtriumLib.read_range sends it.  Only cmd="read" is ever sent."""
+    body = ("<?xml version=\"1.0\" encoding=\"utf-8\"?><SDK xmlns='https://www.cdvi.ca/'><RECORDS><REC trans_id='1' "
+            "cmd='read' sernum='{}' type='{}' id_min='{}' id_max='{}' rec='{}'></REC></RECORDS></SDK>"
+            ).format(serial, obj_type, id_min, id_max, rec)
+    enc = "post_enc={}&post_chk={:04X}".format(rc4(self.key, body.encode()).hex().upper(),
+                                               sum(body.encode()) & 0xFFFF)
+    url = "{}/sdk.xml?sid={}&_=1".format(self.base, self.sid)
+    with urllib.request.urlopen(urllib.request.Request(url, data=enc.encode()), timeout=15) as r:
+        return decrypt(self.key, r.read().decode("latin-1"))
+
+
 Probe.sdk_read = sdk_read
+Probe.sdk_range = sdk_range
 
 
 def main(argv):
@@ -117,6 +132,8 @@ def main(argv):
         print(p.get(argv[1], dict(a.split("=", 1) for a in argv[2:])))
     elif argv[0] == "sdk-read":
         print(p.sdk_read(*argv[1:5]))
+    elif argv[0] == "sdk-range":
+        print(p.sdk_range(*argv[1:6]))
     elif argv[0] == "post":
         print(p.post(argv[1], argv[2], dict(a.split("=", 1) for a in argv[3:])))
     else:

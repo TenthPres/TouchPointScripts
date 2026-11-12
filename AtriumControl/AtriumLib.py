@@ -2,7 +2,7 @@
 # Title: Atrium Library
 # Description: Shared client for the CDVI Atrium SDK, used by the other Atrium scripts.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumLib.py
-# Version: 0.1.2
+# Version: 0.1.3
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -389,7 +389,15 @@ class AtriumClient(object):
         self.write(self.master_serial, "user", "cfg", user_id, user_fields(**changes))
 
     def list_access_levels(self):
-        return [{"id": int(r["id"]), "label": r.get("label3", "")} for r in self.iter_records("access_lvl")]
+        """From the controller's own list page: one request, instead of walking the whole table by id."""
+        root = self.get_xml("access_levels.xml")
+        rows = root.findall(".//ACC_LVL")
+        footer = root.find(".//FOOTER")
+        total = int(footer.get("total_items")) if footer is not None and footer.get("total_items") else len(rows)
+        if total > len(rows):
+            raise AtriumError("Atrium lists {} access levels but returned {}; paged lists aren't supported."
+                              .format(total, len(rows)))
+        return [{"id": int(r.get("id")), "label": r.get("lbl", "")} for r in rows]
 
     def list_schedules(self):
         return [{"id": int(r["id"]), "label": r.get("label3", "")} for r in self.iter_records("sched")]
