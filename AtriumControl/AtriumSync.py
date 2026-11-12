@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.1
+# Version: 0.2.2
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -242,6 +242,11 @@ class PhaseTimer(object):
         return "{}.  Total {:.1f}s.".format("; ".join(parts), (self.last - self.start).total_seconds())
 
 
+def rules_need_level_names(rules):
+    """Looking up access level names means reading the controller's whole level table; numeric ids don't need it."""
+    return any(not (isinstance(r["accessLevel"], int) or str(r["accessLevel"]).isdigit()) for r in rules)
+
+
 def is_dry_run(config):
     """True unless both the shared dryRun and this script's own peopleDryRun have been turned off on purpose."""
     return bool(config["dryRun"]) or config["peopleDryRun"] is not False
@@ -270,7 +275,9 @@ def run():
                           model.Setting("AtriumApiPassword", ""), touchpoint_transport(model))
     client.set_time_budget(config["timeBudgetSeconds"])
     timer = PhaseTimer(client)
-    levels_by_label = dict((l["label"].strip().lower(), l["id"]) for l in client.list_access_levels())
+    levels_by_label = {}
+    if rules_need_level_names(config["rules"]):
+        levels_by_label = dict((l["label"].strip().lower(), l["id"]) for l in client.list_access_levels())
     timer.mark("access levels")
 
     qualified, managed = {}, set()

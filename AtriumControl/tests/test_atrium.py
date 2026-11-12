@@ -521,6 +521,34 @@ class RecordWalkTests(unittest.TestCase):
         self.assertEqual([int(r["id"]) for r in client.iter_records("user")], list(range(340)))
         self.assertEqual(calls, [(0, 99), (100, 199), (200, 299), (300, 399), (400, 499)])
 
+    def test_a_small_table_that_never_ends_stops_at_its_own_limit_and_shows_a_sample(self):
+        # What the live controller did to the access level scan: 50 requests and still going.
+        client, calls = table_client(lambda i: True, total=10 ** 6)
+        with self.assertRaises(L.AtriumError) as ctx:
+            list(client.iter_records("access_lvl"))
+        self.assertLessEqual(len(calls), 11)
+        self.assertIn("access_lvl", str(ctx.exception))
+        self.assertIn("obj_status=used", str(ctx.exception))
+
+    def test_range_reads_that_dont_report_obj_status_fail_fast_with_a_sample(self):
+        client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        calls = []
+
+        def read_range(serial, obj_type, rec, lo, hi):
+            calls.append((lo, hi))
+            return [{"id": str(i), "label3": "L{}".format(i)} for i in range(lo, hi + 1)]
+
+        client.read_range = read_range
+        with self.assertRaises(L.AtriumError) as ctx:
+            list(client.iter_records("access_lvl"))
+        self.assertEqual(len(calls), 1)
+        self.assertIn("label3=L0", str(ctx.exception))
+
+    def test_rules_with_only_numeric_levels_skip_reading_level_names(self):
+        self.assertFalse(S.rules_need_level_names([{"accessLevel": 3}, {"accessLevel": "12"}]))
+        self.assertTrue(S.rules_need_level_names([{"accessLevel": 3}, {"accessLevel": "Staff"}]))
+        self.assertFalse(S.rules_need_level_names([]))
+
     def test_falls_back_to_narrow_batches_if_the_controller_refuses_a_wide_range(self):
         client, calls = table_client(lambda i: i < 60, refuse_over=25)
         self.assertEqual(len(list(client.iter_records("user"))), 60)

@@ -2,7 +2,7 @@
 # Title: Atrium Library
 # Description: Shared client for the CDVI Atrium SDK, used by the other Atrium scripts.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumLib.py
-# Version: 0.1.1
+# Version: 0.1.2
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -31,6 +31,7 @@ MAX_ID_GAP = 100  # how many consecutive unused ids we tolerate before deciding 
 BATCH_IDS = 100  # ids read per request when walking a record table; every request is a slow round trip
 FALLBACK_BATCH_IDS = 25  # what we drop to if the controller refuses a wider range
 MAX_RECORD_IDS = 20000  # a table that hasn't ended by this id is treated as a fault, not walked forever
+TABLE_MAX_IDS = {"access_lvl": 1000, "sched": 1000}  # tables that are small by nature get a tighter limit
 
 
 class AtriumError(Exception):
@@ -333,20 +334,24 @@ class AtriumClient(object):
 
     # -- users -----------------------------------------------------------------------------------------------------
 
-    def iter_records(self, obj_type, rec="cfg", serial=None, batch=None, only_used=True, max_ids=MAX_RECORD_IDS):
+    def iter_records(self, obj_type, rec="cfg", serial=None, batch=None, only_used=True, max_ids=None):
         """
         Walks a record table until it runs out of used ids.  Reads `batch` ids per request (the client's batch_ids by
         default, dropping to FALLBACK_BATCH_IDS if the controller refuses a wide range).  Carries on from the highest id
         actually returned, so a controller that trims a range can't make it skip records, and gives up after `max_ids`
-        ids instead of walking a table that never ends.
+        ids (TABLE_MAX_IDS for the type, else MAX_RECORD_IDS) instead of walking a table that never ends.  The errors
+        quote a sample record, because what the controller really sends is the thing to look at.
         """
         serial = serial or self.master_serial
         batch = batch or self.batch_ids
+        max_ids = max_ids or TABLE_MAX_IDS.get(obj_type, MAX_RECORD_IDS)
         start = 0
         empty_run = 0
+        last_used = None
         while empty_run < MAX_ID_GAP:
             if start >= max_ids:
-                raise AtriumError("Read {} ids of the Atrium {} table without reaching its end.".format(start, obj_type))
+                raise AtriumError("Read {} ids of the Atrium {} table without reaching its end.  Last record read: {}"
+                                  .format(start, obj_type, _sample(last_used)))
             try:
                 rows = self.read_range(serial, obj_type, rec, start, start + batch - 1)
             except AtriumError:
@@ -354,13 +359,17 @@ class AtriumClient(object):
                     batch = self.batch_ids = FALLBACK_BATCH_IDS
                     continue
                 raise
+            if rows and not any("obj_status" in r for r in rows):
+                raise AtriumError("Atrium's range read of the {} table doesn't say which ids are in use, so used and "
+                                  "free records can't be told apart.  First record: {}".format(obj_type, _sample(rows[0])))
             ids = [int(r["id"]) for r in rows if r.get("id") is not None]
             next_start = start + batch if len(rows) >= batch or not ids else max(ids) + 1
             if next_start <= start:
                 raise AtriumError("Atrium ignored the id range asked for ({}-{} of {}).".format(
                     start, start + batch - 1, obj_type))
-            used = [r for r in rows if r.get("obj_status", "used") == "used"]
+            used = [r for r in rows if r.get("obj_status") == "used"]
             for r in used:
+                last_used = r
                 yield r
             empty_run = 0 if used else empty_run + (next_start - start)
             start = next_start
@@ -463,6 +472,13 @@ class AtriumClient(object):
                 trouble = self.read(serial, "ir_apm", "trouble", apm_id)
                 results.append(parse_wireless_lock(serial, apm_id, apm.get("lbl", "").strip(), status, trouble))
         return results
+
+
+def _sample(record):
+    """A short, readable look at one record's attributes, for error messages."""
+    if not record:
+        return "(none)"
+    return ", ".join("{}={}".format(k, v) for k, v in sorted(record.items()))[:300]
 
 
 def _parse(text):
