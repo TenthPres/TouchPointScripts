@@ -349,6 +349,87 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(acts[0]["changes"], {"access_levels": [], "enabled": False})
         self.assertNotIn("delete", [a["kind"] for a in acts])
 
+    # --- a rule that gives its level to every linked, enabled user (e.g. a common code) -------------------------------
+
+    def universal(self, users, links, qualified=None, **kw):
+        qualified = qualified if qualified is not None else {9: {"first": "Zed", "last": "Z", "levels": [7]}}
+        return S.plan_sync(qualified, users, links, {7}, self.off(**kw), universal_levels=[3])
+
+    def test_a_qualifying_user_gets_their_groups_levels_and_the_universal_one(self):
+        users = [user(10, "Ann", "Lee", levels=[])]
+        q = {1: {"first": "Ann", "last": "Lee", "levels": [7]}}
+        acts, _ = self.universal(users, {1: "G10"}, q)
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [7, 3]}}])
+
+    def test_a_user_with_everything_already_needs_no_change(self):
+        users = [user(10, "Ann", "Lee", levels=[7, 3])]
+        acts, _ = self.universal(users, {1: "G10"}, {1: {"first": "Ann", "last": "Lee", "levels": [7]}})
+        self.assertEqual(acts, [])
+
+    def test_a_linked_user_in_no_group_but_with_other_levels_keeps_them_and_gets_the_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[7, 5])]   # 5 isn't in any rule
+        acts, _ = self.universal(users, {1: "G10"})
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [5, 3]}}])
+
+    def test_a_linked_user_in_no_group_and_nothing_else_is_disabled_and_loses_the_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[7, 3])]
+        acts, _ = self.universal(users, {1: "G10"})
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10,
+                                 "changes": {"enabled": False, "access_levels": []}}])
+
+    def test_a_user_who_cant_be_disabled_stays_enabled_and_has_the_universal_level(self):
+        login_user = dict(user(10, "Ann", "Lee", levels=[]), options=[5, 18])
+        acts, _ = self.universal([login_user], {1: "G10"})
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [3]}}])
+
+    def test_with_disabling_off_everyone_linked_and_enabled_has_the_universal_level(self):
+        acts, _ = self.universal([user(10, "Ann", "Lee", levels=[])], {1: "G10"}, disableWhenNoAccess=False)
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [3]}}])
+
+    def test_a_disabled_user_is_not_given_the_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        acts, _ = self.universal(users, {1: "G10"}, ignoreDisabledUsers=False)
+        self.assertEqual(acts, [])
+        acts, _ = self.universal(users, {1: "G10"})          # ignored altogether
+        self.assertEqual(acts, [])
+
+    def test_a_disabled_user_whose_person_qualifies_is_enabled_and_given_it(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        q = {1: {"first": "Ann", "last": "Lee", "levels": [7]}}
+        acts, _ = self.universal(users, {1: "G10"}, q)
+        self.assertEqual(acts[0]["changes"], {"access_levels": [7, 3], "enabled": True})
+
+    def test_unlinked_atrium_users_never_get_the_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[]), user(11, "Cy", "Dee", levels=[])]
+        acts, _ = self.universal(users, {2: "G11"}, {2: {"first": "Cy", "last": "Dee", "levels": [7]}})
+        self.assertEqual([a["userId"] for a in acts if a["kind"] == "update"], [11])
+
+    def test_a_new_user_is_created_with_the_universal_level_too(self):
+        acts, _ = S.plan_sync({1: {"first": "Ann", "last": "Lee", "levels": [7]}}, [], {}, {7}, dict(OPTS),
+                              universal_levels=[3])
+        self.assertEqual(acts[0]["levels"], [7, 3])
+
+    def test_the_five_level_limit_still_applies_with_a_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[11, 12, 13, 14, 15])]   # five unmanaged levels already
+        acts, warn = self.universal(users, {1: "G10"})
+        self.assertEqual(acts, [])
+        self.assertTrue(any("Truncated" in w for w in warn))   # (the other warning is for the unmatched person 9)
+
+    def test_a_universal_level_is_managed_so_it_can_be_taken_away(self):
+        users = [user(10, "Ann", "Lee", levels=[3])]
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, users, {1: "G10"}, set(),
+                              self.off(), universal_levels=[3])
+        self.assertEqual(acts[0]["changes"], {"enabled": False, "access_levels": []})
+
+    def test_a_rule_is_universal_only_when_it_says_so(self):
+        self.assertTrue(S.is_universal_rule({"name": "Common", "accessLevel": 7, "linkedEnabledUsers": True}))
+        self.assertFalse(S.is_universal_rule({"name": "Staff", "accessLevel": 0, "search": "x"}))
+        self.assertFalse(S.is_universal_rule({"name": "Off", "accessLevel": 7, "linkedEnabledUsers": False}))
+        with self.assertRaises(L.AtriumError):
+            S.is_universal_rule({"name": "Both", "accessLevel": 7, "linkedEnabledUsers": True, "search": "x"})
+        with self.assertRaises(L.AtriumError):
+            S.is_universal_rule({"name": "Both", "accessLevel": 7, "linkedEnabledUsers": True, "queryId": GUID})
+
     def test_a_user_with_option_flags_and_no_levels_is_not_disabled(self):
         # Linked, enabled, no access levels, but able to log in to Atrium: nothing to remove, and not to be disabled.
         login_user = dict(user(10, "Ann", "Lee", levels=[]), options=[5, 18])

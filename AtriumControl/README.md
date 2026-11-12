@@ -35,7 +35,8 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   "ignoreDisabledUsers": true,
   "rules": [
     {"name": "Staff", "accessLevel": "Staff", "search": "StatusFlag = 'F10'"},
-    {"name": "Children's volunteers", "accessLevel": "ChildrenYouth", "queryId": "51e3c646-1661-4ee5-aa58-2dec4601f7d5"}
+    {"name": "Children's volunteers", "accessLevel": "ChildrenYouth", "queryId": "51e3c646-1661-4ee5-aa58-2dec4601f7d5"},
+    {"name": "Common code", "accessLevel": "Common Code", "linkedEnabledUsers": true}
   ],
   "schedules": {
     "cycleDays": 7,
@@ -86,6 +87,12 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   `search` (search code, or a saved search's name) or `queryId` (a saved search's id, from its address in TouchPoint).
   The id is resolved to the saved search's current name on every run, so you can rename and edit the saved search in
   TouchPoint and the rule follows it.  Two saved searches sharing one name is an error when using `queryId`.
+- **A rule can give its level to everyone known and enabled** instead of to a search's results, with
+  `"linkedEnabledUsers": true` (and no `search`/`queryId`).  Every Atrium user linked to a TouchPoint person and enabled
+  in Atrium then holds that level, on top of whatever their groups give them; unlinked users never get it.  It doesn't
+  stop the sync disabling someone: a linked user in no group, with no other levels and no option flags, is still
+  disabled, and loses that level with the rest.  A user who stays enabled for another reason (option flags, or levels
+  outside your rules) keeps it.  Each of these is an Atrium write, so the first live run may need a larger `changeLimit`.
 - **A same-named, unlinked Atrium user is never duplicated.**  `linkByName` (on by default) adopts it when the match is
   unique, trying the name Atrium should hold (see below) and then the other spelling; with it off the person is reported
   instead.

@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.3.2
+# Version: 0.4.0
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -91,7 +91,7 @@ def unlinked_users_table(users):
             "<tbody>{}</tbody></table>".format(len(users), rows))
 
 
-def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(), report=None):
+def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(), report=None, universal_levels=()):
     """
     qualified:      {peopleId(int): {"first": str, "last": str, "nick": str (optional), "levels": [...]}}.  The first
                     name Atrium should hold is the nickname if there is one, else "first" (see atrium_first).
@@ -99,6 +99,8 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
     links:          {peopleId(int): guid} as read from the Extra Value
     managed_levels: set of access level ids that rules control
     empty_levels:   access level ids whose rule matched nobody (a renamed saved search looks just like that)
+    universal_levels: access level ids every linked, enabled user holds whatever groups they are in (a rule with
+                    "linkedEnabledUsers"); a user being disabled in this run loses them along with the rest
     report:         optional dict; if someone is left unmatched, report["unlinked_users"] gets the enabled Atrium users
                     nobody is linked to (all of them if ignoreDisabledUsers is off), by surname then first name
     returns (actions, warnings)
@@ -107,6 +109,8 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
     not the numeric Atrium id, is the link, because ids can be reused after a delete.
     """
     actions, warnings = [], []
+    universal = _unique(list(universal_levels))
+    managed_levels = set(managed_levels) | set(universal)  # the sync manages these too, so it can take them away
     by_guid = dict((u["guid"], u) for u in users)
 
     holders = {}
@@ -192,7 +196,7 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
                     warnings.append("{} has no matching Atrium user, and creating users is turned off "
                                     "(createUsers).".format(describe_person(pid, want)))
                     continue
-                levels = _unique(want["levels"])
+                levels = _unique(want["levels"] + list(universal))
                 if len(levels) > ACCESS_LEVEL_SLOTS:
                     warnings.append("Person {} qualifies for {} access levels; Atrium holds {}.  Truncated."
                                     .format(pid, len(levels), ACCESS_LEVEL_SLOTS))
@@ -203,7 +207,7 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
 
         changes = {}
         keep = [l for l in u["access_levels"] if l not in managed_levels]
-        new_levels = keep + [l for l in _unique(want["levels"]) if l not in keep]
+        new_levels = keep + [l for l in _unique(want["levels"] + list(universal)) if l not in keep]
         if len(new_levels) > ACCESS_LEVEL_SLOTS:
             warnings.append("Person {} would need {} access levels; Atrium holds {}.  Truncated."
                             .format(pid, len(new_levels), ACCESS_LEVEL_SLOTS))
@@ -224,13 +228,22 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
             continue
         keep = [l for l in u["access_levels"] if l not in managed_levels]
         changes = {}
-        if keep != u["access_levels"]:
-            changes["access_levels"] = keep
         # A user with option flags set has privileges beyond a card (for instance logging in to Atrium), so having no
         # access levels isn't a reason to disable them; they still lose the levels this sync manages.
         privileged = bool(u.get("options")) and not options.get("disableUsersWithOptions")
-        if options.get("disableWhenNoAccess") and not keep and u["enabled"] and not privileged:
+        disabling = bool(options.get("disableWhenNoAccess")) and not keep and u["enabled"] and not privileged
+        if disabling:
             changes["enabled"] = False
+            new_levels = keep
+        else:
+            # Staying enabled, so the levels everyone known and enabled gets (e.g. a common code) are theirs too.
+            new_levels = keep + ([l for l in universal if l not in keep] if u["enabled"] else [])
+            if len(new_levels) > ACCESS_LEVEL_SLOTS:
+                warnings.append("Person {} would need {} access levels; Atrium holds {}.  Truncated."
+                                .format(pid, len(new_levels), ACCESS_LEVEL_SLOTS))
+                new_levels = new_levels[:ACCESS_LEVEL_SLOTS]
+        if sorted(new_levels) != sorted(u["access_levels"]):
+            changes["access_levels"] = new_levels
         if changes:
             actions.append({"kind": "update", "peopleId": pid, "userId": u["id"], "changes": changes})
 
@@ -354,6 +367,19 @@ def search_people_ids(search):
     return ids
 
 
+def is_universal_rule(rule):
+    """
+    True for a rule that gives its level to every linked, enabled Atrium user ("linkedEnabledUsers": true), not to the
+    people a search finds.  Such a rule can't also name a search.
+    """
+    if not rule.get("linkedEnabledUsers"):
+        return False
+    if rule.get("search") or rule.get("queryId"):
+        raise AtriumError("Rule {!r} has both \"linkedEnabledUsers\" and a search; use one or the other."
+                          .format(rule.get("name")))
+    return True
+
+
 def rule_search(rule):
     """
     What to hand TouchPoint's search for a rule.  A rule gives either "search" (search code, or a saved search's name)
@@ -394,10 +420,13 @@ def run():
         levels_by_label = dict((l["label"].strip().lower(), l["id"]) for l in client.list_access_levels())
     timer.mark("access levels")
 
-    qualified, managed, empty_levels = {}, set(), set()
+    qualified, managed, empty_levels, universal = {}, set(), set(), []
     for rule in config["rules"]:
         level = resolve_level(rule["accessLevel"], levels_by_label)
         managed.add(level)
+        if is_universal_rule(rule):
+            universal.append(level)
+            continue
         matched = search_people_ids(rule_search(rule))
         if not matched:
             empty_levels.add(level)
@@ -419,7 +448,7 @@ def run():
     users = client.list_users()
     timer.mark("Atrium users ({})".format(len(users)))
     report = {}
-    actions, warnings = plan_sync(qualified, users, links, managed, config, empty_levels, report)
+    actions, warnings = plan_sync(qualified, users, links, managed, config, empty_levels, report, universal)
     writes = count_writes(actions)
 
     dry = is_dry_run(config)
