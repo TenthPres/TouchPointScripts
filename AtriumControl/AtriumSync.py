@@ -219,6 +219,20 @@ def people_names(pids):
     return names
 
 
+def search_people_ids(search):
+    """
+    Every PeopleId a TouchPoint search matches.  q.QueryList stops at 1000 people unless told otherwise, and a short
+    list here would read as "these people no longer qualify" and strip their access, so ask for the whole count and
+    refuse to go on if what comes back doesn't add up.
+    """
+    total = int(q.QueryCount(search))
+    ids = set(int(p.PeopleId) for p in q.QueryList(search, "name", max(total, 1), 0))
+    if len(ids) != total:
+        raise AtriumError("Search {!r} matches {} people but only {} were returned; not syncing from a partial "
+                          "list.".format(search, total, len(ids)))
+    return ids
+
+
 def run():
     config = dict(DEFAULT_CONFIG)
     config.update(load_json("AtriumConfig.json", {}))
@@ -232,8 +246,8 @@ def run():
     for rule in config["rules"]:
         level = resolve_level(rule["accessLevel"], levels_by_label)
         managed.add(level)
-        for p in q.QueryList(rule["search"]):
-            entry = qualified.setdefault(int(p.PeopleId), {"levels": []})
+        for pid in search_people_ids(rule["search"]):
+            entry = qualified.setdefault(pid, {"levels": []})
             entry["levels"].append(level)
     names = people_names(qualified.keys())
     for pid in list(qualified):

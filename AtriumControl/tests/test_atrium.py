@@ -221,6 +221,48 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(S.count_writes([{"kind": "link"}, {"kind": "create"}, {"kind": "update"}]), 2)
 
 
+class Person(object):
+    def __init__(self, pid):
+        self.PeopleId = pid
+
+
+class FakeQuery(object):
+    """Stands in for TouchPoint's q: QueryList takes 1000 people by default, like the real one."""
+
+    def __init__(self, people, cap=None):
+        self.people, self.cap, self.limits = people, cap, []
+
+    def QueryCount(self, search):
+        return len(self.people)
+
+    def QueryList(self, search, sort="name", limit=1000, offset=0):
+        self.limits.append(limit)
+        limit = min(limit, self.cap) if self.cap else limit
+        return [Person(p) for p in self.people[offset:offset + limit]]
+
+
+class SearchTests(unittest.TestCase):
+    def setUp(self):
+        self._q = getattr(S, "q", None)
+
+    def tearDown(self):
+        S.q = self._q
+
+    def test_a_search_over_a_thousand_people_is_not_truncated(self):
+        S.q = FakeQuery(list(range(1, 2501)))
+        self.assertEqual(S.search_people_ids("anything"), set(range(1, 2501)))
+        self.assertGreaterEqual(S.q.limits[0], 2500)
+
+    def test_an_empty_search_is_empty(self):
+        S.q = FakeQuery([])
+        self.assertEqual(S.search_people_ids("anything"), set())
+
+    def test_a_partial_result_stops_the_sync(self):
+        S.q = FakeQuery(list(range(1, 2501)), cap=1000)
+        with self.assertRaises(L.AtriumError):
+            S.search_people_ids("anything")
+
+
 class ControlTests(unittest.TestCase):
     def lock(self, **kw):
         base = {"serial": "S", "id": 0, "label": "NDE", "online": True, "battery_low": False,
