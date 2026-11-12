@@ -27,7 +27,8 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   "timeBudgetSeconds": 60,
   "changeLimit": 25,
   "guidExtraValue": "AtriumGuid",
-  "linkByName": false,
+  "linkByName": true,
+  "createUsers": false,
   "syncNames": true,
   "disableWhenNoAccess": true,
   "rules": [
@@ -68,8 +69,10 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
 - **Access levels outside your rules are preserved** on linked users.
 - **Nothing is deleted.**  People who stop qualifying lose the levels your rules manage and (optionally) are disabled.
 - **An empty result is treated as a broken search**, not as "revoke everyone", unless `allowEmptyRun` is set.
-- **A same-named, unlinked Atrium user is never duplicated.**  It is reported; set `linkByName` to adopt it when the
-  match is unique.
+- **A same-named, unlinked Atrium user is never duplicated.**  `linkByName` (on by default) adopts it when the match is
+  unique, trying the formal first name and then the nickname; with it off the person is reported instead.
+- **Users are only created when `createUsers` is true** (it defaults to false).  Until then, someone with no matching
+  Atrium user is reported and skipped, while linking, access levels, names and disabling carry on as usual.
 - **Change limits.**  A run that would exceed `changeLimit` writes applies nothing and says so.
 - **Built-in and protected schedules (ids 0-5, read-only) are never modified.**
 - **Dangerous commands need `confirm=True`** in code and `AtriumConfirm = "YES"` from a script; unlock time is capped at

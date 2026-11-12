@@ -22,7 +22,8 @@ def user(uid, first, last, levels=(), enabled=True, guid=None):
             "access_levels": list(levels)}
 
 
-OPTS = {"linkByName": False, "syncNames": True, "disableWhenNoAccess": True, "allowEmptyRun": False}
+OPTS = {"linkByName": False, "createUsers": True, "syncNames": True, "disableWhenNoAccess": True,
+        "allowEmptyRun": False}
 
 
 class CryptoTests(unittest.TestCase):
@@ -136,6 +137,27 @@ class PlannerTests(unittest.TestCase):
     def test_a_person_with_no_match_is_created_under_their_formal_name(self):
         acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), [], {}, {7}, OPTS)
         self.assertEqual(acts[0]["first"], "Jonathan")
+
+    def test_creation_can_be_turned_off(self):
+        acts, warn = S.plan_sync(self.q(1, [7]), [], {}, {7}, dict(OPTS, createUsers=False))
+        self.assertEqual(acts, [])
+        self.assertEqual(len(warn), 1)
+        self.assertIn("createUsers", warn[0])
+
+    def test_creation_is_off_by_default(self):
+        self.assertFalse(S.DEFAULT_CONFIG["createUsers"])
+        acts, _ = S.plan_sync(self.q(1, [7]), [], {}, {7}, dict(S.DEFAULT_CONFIG))
+        self.assertEqual(acts, [])
+
+    def test_turning_creation_off_still_links_updates_and_disables(self):
+        users = [user(10, "Ann", "Lee", levels=[]), user(11, "Bo", "Ray", levels=[7])]
+        opts = dict(OPTS, createUsers=False, linkByName=True)
+        qualified = {1: {"first": "Ann", "last": "Lee", "levels": [7]},   # matched by name: link, then add the level
+                     3: {"first": "Cy", "last": "New", "levels": [7]}}    # nobody in Atrium: skipped
+        acts, warn = S.plan_sync(qualified, users, {2: "G11"}, {7}, opts)  # person 2 is linked but no longer qualifies
+        self.assertEqual(sorted(a["kind"] for a in acts), ["link", "update", "update"])
+        self.assertNotIn("create", [a["kind"] for a in acts])
+        self.assertEqual(len(warn), 1)
 
     def test_new_person_is_created_with_levels(self):
         acts, warn = S.plan_sync(self.q(1, [7]), [], {}, {7}, OPTS)

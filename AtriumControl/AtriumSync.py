@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.3
+# Version: 0.2.4
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -36,7 +36,8 @@ DEFAULT_CONFIG = {
     "changeLimit": 25,
     "timeBudgetSeconds": 60,  # reading from Atrium stops with an error past this, before a web gateway gives up; 0 = none
     "guidExtraValue": "AtriumGuid",
-    "linkByName": False,  # adopt an existing, unlinked Atrium user when exactly one has the same first and last name
+    "linkByName": True,  # adopt an existing, unlinked Atrium user when exactly one has the same first and last name
+    "createUsers": False,  # a person nobody in Atrium matches is reported, not created, until this is true
     "syncNames": True,
     "disableWhenNoAccess": True,
     "allowEmptyRun": False,  # a run where nobody qualifies is almost always a broken search, so refuse unless allowed
@@ -124,6 +125,10 @@ def plan_sync(qualified, users, links, managed_levels, options):
                 unlinked_by_name[match_key] = []
                 actions.append({"kind": "link", "peopleId": pid, "guid": u["guid"]})
             else:
+                if not options.get("createUsers"):
+                    warnings.append("Person {} has no matching Atrium user, and creating users is turned off "
+                                    "(createUsers); skipping.".format(pid))
+                    continue
                 levels = _unique(want["levels"])
                 if len(levels) > ACCESS_LEVEL_SLOTS:
                     warnings.append("Person {} qualifies for {} access levels; Atrium holds {}.  Truncated."
