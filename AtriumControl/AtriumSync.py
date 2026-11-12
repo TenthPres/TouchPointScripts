@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.7
+# Version: 0.2.8
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -41,6 +41,7 @@ DEFAULT_CONFIG = {
     "createUsers": False,  # a person nobody in Atrium matches is reported, not created, until this is true
     "syncNames": True,
     "disableWhenNoAccess": True,
+    "ignoreDisabledUsers": True,  # a disabled Atrium user is left alone unless it matches someone TouchPoint asks for
     "allowEmptyRun": False,  # a run where nobody qualifies is almost always a broken search, so refuse unless allowed
     "rules": [],  # [{"name": "Staff", "accessLevel": "Staff", "search": "StatusFlag = 'F10'"}]
 }
@@ -122,14 +123,20 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
         live_links[pid] = u
     claimed = set(g for g in holders if g in by_guid)  # an Atrium user someone claims is never adopted by name
 
-    if not qualified and live_links and not options.get("allowEmptyRun"):
+    # Linked users the sync would act on if they don't qualify.  A disabled one is left alone (it can't open anything,
+    # and revoking from it only spends writes), unless TouchPoint asks for it: a disabled user whose person qualifies
+    # goes through the normal path below and is re-enabled, and one matched by name is adopted the same way.
+    revocable = dict((pid, u) for pid, u in live_links.items()
+                     if u["enabled"] or not options.get("ignoreDisabledUsers", True))
+
+    if not qualified and revocable and not options.get("allowEmptyRun"):
         warnings.append("Nobody qualifies for any rule but {} people are linked.  Refusing to revoke everything; "
-                        "check the searches (or set allowEmptyRun).".format(len(live_links)))
+                        "check the searches (or set allowEmptyRun).".format(len(revocable)))
         return actions, warnings
 
     # One rule going quiet is as suspicious as all of them: a saved search that was renamed or deleted matches nobody,
     # and that would read as "everyone holding its level no longer qualifies".
-    holding_empty = [pid for pid, u in live_links.items() if set(u["access_levels"]) & set(empty_levels)]
+    holding_empty = [pid for pid, u in revocable.items() if set(u["access_levels"]) & set(empty_levels)]
     if holding_empty and not options.get("allowEmptyRun"):
         warnings.append("A rule matched nobody, but {} linked people hold the access level it manages.  Refusing to "
                         "revoke them; check that rule's search (or set allowEmptyRun).".format(len(holding_empty)))
@@ -206,7 +213,7 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
         if changes:
             actions.append({"kind": "update", "peopleId": pid, "userId": u["id"], "changes": changes})
 
-    for pid, u in sorted(live_links.items()):
+    for pid, u in sorted(revocable.items()):
         if pid in qualified:
             continue
         keep = [l for l in u["access_levels"] if l not in managed_levels]

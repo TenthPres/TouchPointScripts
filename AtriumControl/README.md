@@ -31,6 +31,7 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   "createUsers": false,
   "syncNames": true,
   "disableWhenNoAccess": true,
+  "ignoreDisabledUsers": true,
   "rules": [
     {"name": "Staff", "accessLevel": "Staff", "search": "StatusFlag = 'F10'"},
     {"name": "Children's volunteers", "accessLevel": "ChildrenYouth", "queryId": "51e3c646-1661-4ee5-aa58-2dec4601f7d5"}
@@ -68,6 +69,11 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   claiming one GUID are both left alone; Atrium users it didn't create or link are never touched.
 - **Access levels outside your rules are preserved** on linked users.
 - **Nothing is deleted.**  People who stop qualifying lose the levels your rules manage and (optionally) are disabled.
+- **Disabled Atrium users are left alone** while `ignoreDisabledUsers` is true (the default): a linked user who is
+  already disabled and no longer qualifies is not touched, and doesn't count towards the "nobody qualifies" checks.
+  They are still synced if TouchPoint asks for them: a disabled user whose person qualifies is re-enabled and given the
+  right levels, and a disabled user matched by name to a qualifying person is adopted the same way.  Set it to false to
+  revoke managed levels from disabled users too.
 - **An empty result is treated as a broken search**, not as "revoke everyone", unless `allowEmptyRun` is set.  That
   covers one rule going quiet as well as all of them: if a rule matches nobody while linked people still hold the
   access level it manages (say its saved search was renamed or deleted), nothing is revoked and the page says why.

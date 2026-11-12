@@ -290,6 +290,42 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(acts[0]["changes"], {"access_levels": [], "enabled": False})
         self.assertNotIn("delete", [a["kind"] for a in acts])
 
+    def test_disabled_atrium_users_are_ignored_by_default(self):
+        self.assertTrue(S.DEFAULT_CONFIG["ignoreDisabledUsers"])
+
+    def test_a_disabled_linked_person_who_no_longer_qualifies_is_left_alone(self):
+        users = [user(10, "Ann", "Lee", levels=[7], enabled=False), user(11, "Bo", "Ray", levels=[7])]
+        acts, warn = S.plan_sync(self.q(2, [7], "Bo", "Ray"), users, {1: "G10", 2: "G11"}, {7}, OPTS)
+        self.assertEqual((acts, warn), ([], []))
+
+    def test_turning_the_option_off_revokes_from_disabled_users_too(self):
+        users = [user(10, "Ann", "Lee", levels=[7], enabled=False), user(11, "Bo", "Ray", levels=[7])]
+        acts, _ = S.plan_sync(self.q(2, [7], "Bo", "Ray"), users, {1: "G10", 2: "G11"}, {7},
+                              dict(OPTS, ignoreDisabledUsers=False))
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": []}}])
+
+    def test_a_disabled_user_whose_person_qualifies_is_still_re_enabled(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {1: "G10"}, {7}, dict(OPTS, ignoreDisabledUsers=True))
+        self.assertEqual(acts[0]["changes"], {"access_levels": [7], "enabled": True})
+
+    def test_a_disabled_unlinked_user_matching_a_requested_person_is_adopted_and_enabled(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {}, {7}, dict(OPTS, linkByName=True, ignoreDisabledUsers=True))
+        self.assertEqual([a["kind"] for a in acts], ["link", "update"])
+        self.assertTrue(acts[1]["changes"]["enabled"])
+
+    def test_disabled_users_do_not_trip_the_nobody_qualifies_guard(self):
+        users = [user(10, "Ann", "Lee", levels=[7], enabled=False)]
+        acts, warn = S.plan_sync({}, users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual((acts, warn), ([], []))
+
+    def test_a_disabled_user_holding_an_empty_rules_level_does_not_block_the_run(self):
+        users = [user(10, "Ann", "Lee", levels=[3], enabled=False), user(11, "Bo", "Ray", levels=[0])]
+        qualified = {2: {"first": "Bo", "last": "Ray", "levels": [0]}}
+        acts, warn = S.plan_sync(qualified, users, {1: "G10", 2: "G11"}, {0, 3}, OPTS, empty_levels={3})
+        self.assertEqual((acts, warn), ([], []))
+
     def test_requalifying_person_is_re_enabled(self):
         users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
         acts, _ = S.plan_sync(self.q(1, [7]), users, {1: "G10"}, {7}, OPTS)
