@@ -628,6 +628,54 @@ class AccessLevelListTests(unittest.TestCase):
             c.list_access_levels()
 
 
+class MasterSerialTests(unittest.TestCase):
+    """The first read of a run used to go to controller "None", because the serial is learned at login."""
+
+    def client(self):
+        c = L.AtriumClient("http://x", "u", "p", transport=None)
+        calls = {"logins": 0}
+
+        def authenticate():
+            calls["logins"] += 1
+            c.sid = "SID"
+            c._master_serial = c._master_serial or "00009F90"
+
+        c.authenticate = authenticate
+        return c, calls
+
+    def test_asking_for_the_serial_logs_in_first(self):
+        c, calls = self.client()
+        self.assertEqual(c.master_serial, "00009F90")
+        self.assertEqual(c.master_serial, "00009F90")
+        self.assertEqual(calls["logins"], 1)
+
+    def test_a_serial_given_up_front_needs_no_login(self):
+        c = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        c.authenticate = lambda: self.fail("should not log in")
+        self.assertEqual(c.master_serial, "S")
+
+    def test_the_first_schedule_read_goes_to_the_real_controller(self):
+        c, _ = self.client()
+        sent = []
+
+        def sdk(kind, attrs, data=None):
+            sent.append(dict(attrs))
+            return L.ET.fromstring("<REC><DATA id='18' label3='Courtyard' utc_time4='0' dword5='604800'/></REC>")
+
+        c.sdk = sdk
+        schedule = c.get_schedule(18)
+        self.assertEqual(sent[0]["sernum"], "00009F90")
+        self.assertEqual(schedule["label"], "Courtyard")
+
+    def test_the_first_table_scan_goes_to_the_real_controller(self):
+        c, _ = self.client()
+        seen = []
+        c.read_range = lambda serial, t, rec, lo, hi: seen.append(serial) or [
+            {"id": str(i), "obj_status": "free", "res": "ok"} for i in range(lo, hi + 1)]
+        list(c.iter_records("access_lvl"))
+        self.assertEqual(set(seen), {"00009F90"})
+
+
 class TimeBudgetTests(unittest.TestCase):
     class Clock(object):
         def __init__(self):

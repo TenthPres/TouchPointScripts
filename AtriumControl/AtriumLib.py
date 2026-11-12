@@ -2,7 +2,7 @@
 # Title: Atrium Library
 # Description: Shared client for the CDVI Atrium SDK, used by the other Atrium scripts.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumLib.py
-# Version: 0.1.5
+# Version: 0.1.6
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -198,6 +198,21 @@ class AtriumClient(object):
         self.time_budget = None
         self.deadline = None
 
+    @property
+    def master_serial(self):
+        """
+        The master controller's serial, which the login reports.  Asking for it logs in first if need be: it used to
+        read as None until some earlier request had logged in, so the first read of a run went to controller "None" and
+        came back as an error row (a nameless schedule; every record refused on a table scan).
+        """
+        if self._master_serial is None:
+            self.authenticate()
+        return self._master_serial
+
+    @master_serial.setter
+    def master_serial(self, value):
+        self._master_serial = value
+
     def set_time_budget(self, seconds):
         """Any request made more than `seconds` from now raises AtriumError, so a slow run stops before a gateway does."""
         self.time_budget = int(seconds) if seconds else None
@@ -248,7 +263,7 @@ class AtriumClient(object):
 
         self.sid = conn.get("session")
         self.key = key
-        self.master_serial = self.master_serial or serial
+        self._master_serial = self._master_serial or serial
         timeout = int(conn.get("timeout") or 900)
         self.expires = self.clock() + datetime.timedelta(seconds=timeout)
 
