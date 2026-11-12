@@ -78,7 +78,9 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
 - **A same-named, unlinked Atrium user is never duplicated.**  `linkByName` (on by default) adopts it when the match is
   unique, trying the formal first name and then the nickname; with it off the person is reported instead.
 - **Users are only created when `createUsers` is true** (it defaults to false).  Until then, someone with no matching
-  Atrium user is reported and skipped, while linking, access levels, names and disabling carry on as usual.
+  Atrium user is reported and skipped, while linking, access levels, names and disabling carry on as usual.  When
+  anyone is skipped this way, the page ends with a table of the Atrium users nobody is linked to (name and GUID, sorted
+  by surname), so the right one can be picked and its GUID put in that person's Extra Value by hand.
 - **Change limits.**  A run that would exceed `changeLimit` writes applies nothing and says so.
 - **Built-in and protected schedules (ids 0-5, read-only) are never modified.**
 - **Dangerous commands need `confirm=True`** in code and `AtriumConfirm = "YES"` from a script; unlock time is capped at

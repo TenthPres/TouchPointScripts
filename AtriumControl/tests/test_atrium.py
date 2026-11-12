@@ -163,50 +163,65 @@ class PlannerTests(unittest.TestCase):
     def off(self, **kw):
         return dict(OPTS, createUsers=False, **kw)
 
-    def test_an_unmatched_person_is_named_and_the_unlinked_atrium_users_are_listed_once(self):
+    def test_an_unmatched_person_is_named_and_the_unlinked_atrium_users_are_reported_once(self):
         users = [user(10, "Johnathan", "Smith"), user(12, "Zed", "Smith"), user(13, "Ann", "Other")]
         qualified = dict(self.named(7, "Jonathan", "Jon", last="Smith"))
         qualified.update(self.named(8, "Kay", "Kay", last="Nobody"))
-        acts, warn = S.plan_sync(qualified, users, {}, {7}, self.off())
+        report = {}
+        acts, warn = S.plan_sync(qualified, users, {}, {7}, self.off(), report=report)
         self.assertEqual(acts, [])
-        self.assertEqual(len(warn), 3)  # one per person, then a single list
+        self.assertEqual(len(warn), 2)  # one per person; the Atrium users go in the report, once
         self.assertIn("Person 7 (Jonathan Smith, goes by Jon)", warn[0])
         self.assertIn("put the right user's GUID in the AtriumGuid Extra Value on person 7", warn[0])
+        self.assertIn("in the table below", warn[0])
         self.assertIn("Person 8 (Kay Nobody)", warn[1])
-        listing = warn[2]
-        self.assertIn("(3)", listing)
-        for text in ("Johnathan Smith (GUID G10)", "Zed Smith (GUID G12)", "Ann Other (GUID G13)"):
-            self.assertIn(text, listing)
-        self.assertEqual(listing.count("GUID G10"), 1)
+        self.assertEqual(sorted(u["guid"] for u in report["unlinked_users"]), ["G10", "G12", "G13"])
 
-    def test_the_list_is_sorted_by_surname_then_first_name(self):
+    def test_the_unlinked_users_are_sorted_by_surname_then_first_name(self):
         users = [user(1, "Zed", "Young"), user(2, "Amy", "Young"), user(3, "Bob", "Adams")]
-        listing = S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off())[1][-1]
-        self.assertLess(listing.index("Bob Adams"), listing.index("Amy Young"))
-        self.assertLess(listing.index("Amy Young"), listing.index("Zed Young"))
+        report = {}
+        S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off(), report=report)
+        self.assertEqual([u["name"] for u in report["unlinked_users"]], ["Bob Adams", "Amy Young", "Zed Young"])
 
-    def test_the_list_leaves_out_users_already_linked_or_adopted(self):
+    def test_the_unlinked_users_leave_out_those_already_linked_or_adopted(self):
         users = [user(10, "Jonathan", "Smith"), user(11, "Other", "Person"), user(12, "Linked", "Already")]
         qualified = dict(self.named(1, "Jonathan", "Jon", last="Smith"))
         qualified.update(self.named(2, "No", "No", last="Match"))
-        acts, warn = S.plan_sync(qualified, users, {99: "G12"}, {7}, self.off(linkByName=True))
+        report = {}
+        acts, _ = S.plan_sync(qualified, users, {99: "G12"}, {7}, self.off(linkByName=True), report=report)
         self.assertIn({"kind": "link", "peopleId": 1, "guid": "G10"}, acts)
-        listing = warn[-1]
-        self.assertIn("Other Person (GUID G11)", listing)
-        self.assertNotIn("G10", listing)
-        self.assertNotIn("G12", listing)
+        self.assertEqual([u["guid"] for u in report["unlinked_users"]], ["G11"])
 
-    def test_there_is_no_list_when_nobody_was_left_unmatched(self):
-        users = [user(10, "Ann", "Lee")]
-        warn = S.plan_sync(self.q(1, [7]), users, {1: "G10"}, {7}, self.off())[1]
+    def test_there_is_no_report_when_nobody_was_left_unmatched(self):
+        report = {}
+        warn = S.plan_sync(self.q(1, [7]), [user(10, "Ann", "Lee")], {1: "G10"}, {7}, self.off(), report=report)[1]
         self.assertEqual(warn, [])
+        self.assertEqual(report, {})
+
+    def test_the_planner_works_without_a_report(self):
+        acts, warn = S.plan_sync(self.named(7, "Jonathan", "Jon", last="Smith"), [], {}, {7}, self.off())
+        self.assertEqual((acts, len(warn)), ([], 1))
 
     def test_the_extra_value_name_comes_from_the_config(self):
         _, warn = S.plan_sync(self.named(7, "Jonathan", "Jon", last="Smith"), [], {}, {7},
                               self.off(guidExtraValue="MyLink"))
         self.assertIn("MyLink Extra Value on person 7", warn[0])
-        self.assertIn("(0)", warn[-1])
-        self.assertIn("none", warn[-1])
+
+    def test_the_unlinked_users_come_out_as_an_html_table(self):
+        users = [user(10, "Ann", "Lee"), user(11, "Bo <b>", "R&D")]
+        html = S.unlinked_users_table(users)
+        self.assertIn("<table", html)
+        self.assertIn("<th>Atrium user</th><th>GUID</th>", html)
+        self.assertIn("<tr><td>Ann Lee</td><td><code>G10</code></td></tr>", html)
+        self.assertIn("(2)", html)
+        self.assertEqual(html.count("<tr>"), 3)  # header row plus one per user
+        self.assertIn("Bo &lt;b&gt; R&amp;D", html)  # names can't inject markup
+        self.assertNotIn("<b>", html)
+
+    def test_an_empty_table_still_says_so(self):
+        html = S.unlinked_users_table([])
+        self.assertIn("(0)", html)
+        self.assertEqual(html.count("<tr>"), 1)
 
     def test_a_nickname_is_only_mentioned_when_it_differs(self):
         _, warn = S.plan_sync(self.named(7, "Ann", "Ann", last="Lee"), [], {}, {7}, self.off())
@@ -229,7 +244,7 @@ class PlannerTests(unittest.TestCase):
     def test_creation_can_be_turned_off(self):
         acts, warn = S.plan_sync(self.q(1, [7]), [], {}, {7}, dict(OPTS, createUsers=False))
         self.assertEqual(acts, [])
-        self.assertEqual(len(warn), 2)  # the person, then the list of Atrium users nobody is linked to
+        self.assertEqual(len(warn), 1)
         self.assertIn("createUsers", warn[0])
 
     def test_creation_is_off_by_default(self):
@@ -245,7 +260,7 @@ class PlannerTests(unittest.TestCase):
         acts, warn = S.plan_sync(qualified, users, {2: "G11"}, {7}, opts)  # person 2 is linked but no longer qualifies
         self.assertEqual(sorted(a["kind"] for a in acts), ["link", "update", "update"])
         self.assertNotIn("create", [a["kind"] for a in acts])
-        self.assertEqual(len(warn), 2)  # person 3, then the list of Atrium users nobody is linked to
+        self.assertEqual(len(warn), 1)  # person 3
 
     def test_new_person_is_created_with_levels(self):
         acts, warn = S.plan_sync(self.q(1, [7]), [], {}, {7}, OPTS)

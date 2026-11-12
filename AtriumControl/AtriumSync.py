@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.6
+# Version: 0.2.7
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -71,13 +71,28 @@ def describe_user(u):
     return '{} (GUID {})'.format(u["name"], u["guid"])
 
 
-def plan_sync(qualified, users, links, managed_levels, options, empty_levels=()):
+def html_escape(text):
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def unlinked_users_table(users):
+    """An HTML table of Atrium users (name and GUID), for finding the right one to link a person to by hand."""
+    rows = "".join("<tr><td>{}</td><td><code>{}</code></td></tr>".format(html_escape(u["name"]), html_escape(u["guid"]))
+                   for u in users)
+    return ("<p>Atrium users nobody is linked to ({}), for linking by hand:</p>"
+            "<table class='table table-striped table-condensed'><thead><tr><th>Atrium user</th><th>GUID</th></tr></thead>"
+            "<tbody>{}</tbody></table>".format(len(users), rows))
+
+
+def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(), report=None):
     """
     qualified:      {peopleId(int): {"first": str (formal), "last": str, "nick": str (optional), "levels": [...]}}
     users:          list of parse_user() dicts from Atrium
     links:          {peopleId(int): guid} as read from the Extra Value
     managed_levels: set of access level ids that rules control
     empty_levels:   access level ids whose rule matched nobody (a renamed saved search looks just like that)
+    report:         optional dict; if someone is left unmatched, report["unlinked_users"] gets the Atrium users nobody
+                    is linked to, sorted by surname then first name
     returns (actions, warnings)
 
     Actions are dicts with a "kind" of: create, link, update.  "update" carries only the changed fields.  The GUID,
@@ -162,7 +177,7 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=())
                 if not options.get("createUsers"):
                     unmatched += 1
                     warnings.append("{} has no matching Atrium user, and creating users is turned off (createUsers).  "
-                                    "{}  The Atrium users nobody is linked to are listed at the end.".format(
+                                    "{}  The Atrium users nobody is linked to are in the table below.".format(
                                         describe_person(pid, want), by_hand))
                     continue
                 levels = _unique(want["levels"])
@@ -203,12 +218,10 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=())
         if changes:
             actions.append({"kind": "update", "peopleId": pid, "userId": u["id"], "changes": changes})
 
-    if unmatched:
+    if unmatched and report is not None:
         # Once, not once per person: the Atrium users nobody is linked to, so the right one can be picked by name.
-        free = sorted((u for u in users if u["guid"] not in claimed and u["guid"] not in adopted),
-                      key=lambda u: (_plain(u["last_name"]), _plain(u["first_name"])))
-        warnings.append("Atrium users nobody is linked to ({}), for linking by hand: {}.".format(
-            len(free), "; ".join(describe_user(u) for u in free) or "none"))
+        report["unlinked_users"] = sorted((u for u in users if u["guid"] not in claimed and u["guid"] not in adopted),
+                                          key=lambda u: (_plain(u["last_name"]), _plain(u["first_name"])))
 
     return actions, warnings
 
@@ -385,17 +398,20 @@ def run():
 
     users = client.list_users()
     timer.mark("Atrium users ({})".format(len(users)))
-    actions, warnings = plan_sync(qualified, users, links, managed, config, empty_levels)
+    report = {}
+    actions, warnings = plan_sync(qualified, users, links, managed, config, empty_levels, report)
     writes = count_writes(actions)
 
     dry = is_dry_run(config)
     print("<h3>Atrium Sync{}</h3>".format(" (dry run)" if dry else ""))
     print("<p>Timing: {}</p>".format(timer.summary()))
     for w in warnings:
-        print("<p><b>Warning:</b> {}</p>".format(w.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")))
+        print("<p><b>Warning:</b> {}</p>".format(html_escape(w)))
     print("<p>{} qualifying people, {} planned actions ({} Atrium writes).</p>".format(len(qualified), len(actions), writes))
     for a in actions:
         print("<div>{}</div>".format(json.dumps(a)))
+    if "unlinked_users" in report:
+        print(unlinked_users_table(report["unlinked_users"]))
 
     if dry:
         return
