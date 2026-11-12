@@ -105,22 +105,47 @@ class PlannerTests(unittest.TestCase):
     def named(self, pid, first, nick, last="Gibson", levels=(7,)):
         return {pid: {"first": first, "nick": nick, "last": last, "levels": list(levels)}}
 
-    def test_a_formal_name_in_atrium_matches_a_nickname_in_touchpoint(self):
+    def test_atrium_holds_the_nickname_when_there_is_one_else_the_first_name(self):
+        self.assertEqual(S.atrium_first({"first": "Jonathan", "nick": "Jonny"}), "Jonny")
+        self.assertEqual(S.atrium_first({"first": "Ann", "nick": ""}), "Ann")
+        self.assertEqual(S.atrium_first({"first": "Ann", "nick": None}), "Ann")
+        self.assertEqual(S.atrium_first({"first": "Ann"}), "Ann")
+
+    def test_a_formal_name_in_atrium_is_found_and_renamed_to_the_nickname(self):
         users = [user(10, "Jonathan", "Gibson")]
         opts = dict(OPTS, linkByName=True)
         acts, warn = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
         self.assertEqual([a["kind"] for a in acts], ["link", "update"])
         self.assertEqual(acts[0]["guid"], "G10")
+        self.assertEqual(acts[1]["changes"]["first_name"], "Jonny")
         self.assertEqual(warn, [])
 
-    def test_a_nickname_already_in_atrium_is_found_rather_than_duplicated(self):
-        users = [user(10, "Jonny", "Gibson")]
+    def test_a_nickname_already_in_atrium_is_found_and_needs_no_rename(self):
+        users = [user(10, "Jonny", "Gibson", levels=[7])]
         opts = dict(OPTS, linkByName=True)
         acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
-        self.assertEqual(acts[0], {"kind": "link", "peopleId": 1, "guid": "G10"})
-        self.assertNotIn("create", [a["kind"] for a in acts])
-        # and syncNames puts the formal name into Atrium
-        self.assertEqual(acts[1]["changes"]["first_name"], "Jonathan")
+        self.assertEqual(acts, [{"kind": "link", "peopleId": 1, "guid": "G10"}])
+
+    def test_a_linked_user_already_under_the_nickname_is_left_alone(self):
+        users = [user(10, "Jonny", "Gibson", levels=[7])]
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [])
+
+    def test_a_linked_user_under_the_first_name_is_renamed_to_the_nickname(self):
+        users = [user(10, "Jonathan", "Gibson", levels=[7])]
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10,
+                                 "changes": {"first_name": "Jonny", "last_name": "Gibson"}}])
+
+    def test_a_person_without_a_nickname_keeps_their_first_name(self):
+        users = [user(10, "Ann", "Lee", levels=[7])]
+        acts, _ = S.plan_sync(self.named(1, "Ann", "", last="Lee"), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [])
+
+    def test_renaming_can_be_turned_off(self):
+        users = [user(10, "Jonathan", "Gibson", levels=[7])]
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {1: "G10"}, {7}, dict(OPTS, syncNames=False))
+        self.assertEqual(acts, [])
 
     def test_without_linkbyname_a_nickname_match_warns_and_creates_nothing(self):
         users = [user(10, "Jonny", "Gibson")]
@@ -128,14 +153,18 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(acts, [])
         self.assertEqual(len(warn), 1)
 
-    def test_the_formal_name_wins_over_a_nickname_match(self):
+    def test_the_nickname_wins_over_the_first_name_when_both_are_in_atrium(self):
         users = [user(10, "Jonathan", "Gibson"), user(11, "Jonny", "Gibson")]
         opts = dict(OPTS, linkByName=True)
         acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
-        self.assertEqual(acts[0], {"kind": "link", "peopleId": 1, "guid": "G10"})
+        self.assertEqual(acts[0], {"kind": "link", "peopleId": 1, "guid": "G11"})
 
-    def test_a_person_with_no_match_is_created_under_their_formal_name(self):
+    def test_a_person_with_no_match_is_created_under_their_nickname(self):
         acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), [], {}, {7}, OPTS)
+        self.assertEqual(acts[0]["first"], "Jonny")
+
+    def test_a_person_with_no_nickname_is_created_under_their_first_name(self):
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", ""), [], {}, {7}, OPTS)
         self.assertEqual(acts[0]["first"], "Jonathan")
 
     def test_a_rule_that_matches_nobody_does_not_strip_the_people_holding_its_level(self):

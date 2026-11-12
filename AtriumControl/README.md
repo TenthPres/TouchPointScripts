@@ -82,7 +82,11 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   The id is resolved to the saved search's current name on every run, so you can rename and edit the saved search in
   TouchPoint and the rule follows it.  Two saved searches sharing one name is an error when using `queryId`.
 - **A same-named, unlinked Atrium user is never duplicated.**  `linkByName` (on by default) adopts it when the match is
-  unique, trying the formal first name and then the nickname; with it off the person is reported instead.
+  unique, trying the name Atrium should hold (see below) and then the other spelling; with it off the person is reported
+  instead.
+- **Atrium's first name is the person's TouchPoint nickname, or their first name if they have no nickname.**  That is
+  the name given to a newly created user and, while `syncNames` is true (the default), the name a linked user is
+  renamed to if it differs.  Set `syncNames` to false to leave existing Atrium names as they are.
 - **Users are only created when `createUsers` is true** (it defaults to false).  Until then, someone with no matching
   Atrium user is reported and skipped, while linking, access levels, names and disabling carry on as usual.  When
   anyone is skipped this way, the page ends with a table of the enabled Atrium users nobody is linked to (name and GUID,

@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.3.0
+# Version: 0.3.1
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -59,6 +59,11 @@ def _plain(value):
     return ascii_name(value).lower()
 
 
+def atrium_first(want):
+    """The first name Atrium should hold for a person: their TouchPoint nickname, or their first name if they have none."""
+    return want.get("nick") or want["first"]
+
+
 def describe_person(pid, want):
     """A person as the warnings name them: enough to find them in TouchPoint, including a nickname that differs."""
     name = "{} {}".format(want["first"], want["last"]).strip()
@@ -87,7 +92,8 @@ def unlinked_users_table(users):
 
 def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(), report=None):
     """
-    qualified:      {peopleId(int): {"first": str (formal), "last": str, "nick": str (optional), "levels": [...]}}
+    qualified:      {peopleId(int): {"first": str, "last": str, "nick": str (optional), "levels": [...]}}.  The first
+                    name Atrium should hold is the nickname if there is one, else "first" (see atrium_first).
     users:          list of parse_user() dicts from Atrium
     links:          {peopleId(int): guid} as read from the Extra Value
     managed_levels: set of access level ids that rules control
@@ -156,14 +162,15 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
         u = live_links.get(pid)
 
         if u is None:
-            # Atrium uses people's formal first names, so match on that first.  Only if nobody has it, try their
-            # nickname: better to find an existing user under a nickname than to create a duplicate.
-            match_key = name_key(want["first"], want["last"])
-            candidates = unlinked_by_name.get(match_key, [])
-            if not candidates and want.get("nick"):
-                nick_key = name_key(want["nick"], want["last"])
-                if unlinked_by_name.get(nick_key):
-                    match_key, candidates = nick_key, unlinked_by_name[nick_key]
+            # Atrium's first name is the person's nickname, or their first name if they have none.  Look under that
+            # first, then under the other spelling, so an existing user is found whichever way they were entered
+            # rather than duplicated.
+            match_key, candidates = None, []
+            for first in (atrium_first(want), want["first"]):
+                key = name_key(first, want["last"])
+                if unlinked_by_name.get(key):
+                    match_key, candidates = key, unlinked_by_name[key]
+                    break
             if candidates and not options.get("linkByName"):
                 warnings.append("{} has the same name as an existing, unlinked Atrium user: {}.  Not creating a "
                                 "duplicate; turn on linkByName to adopt them.".format(
@@ -189,7 +196,7 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
                     warnings.append("Person {} qualifies for {} access levels; Atrium holds {}.  Truncated."
                                     .format(pid, len(levels), ACCESS_LEVEL_SLOTS))
                     levels = levels[:ACCESS_LEVEL_SLOTS]
-                actions.append({"kind": "create", "peopleId": pid, "first": ascii_name(want["first"]),
+                actions.append({"kind": "create", "peopleId": pid, "first": ascii_name(atrium_first(want)),
                                 "last": ascii_name(want["last"]), "levels": levels})
                 continue
 
@@ -202,8 +209,9 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
             new_levels = new_levels[:ACCESS_LEVEL_SLOTS]
         if sorted(new_levels) != sorted(u["access_levels"]):
             changes["access_levels"] = new_levels
-        if options.get("syncNames") and name_key(u["first_name"], u["last_name"]) != name_key(want["first"], want["last"]):
-            changes["first_name"] = ascii_name(want["first"])
+        if options.get("syncNames") and (name_key(u["first_name"], u["last_name"])
+                                         != name_key(atrium_first(want), want["last"])):
+            changes["first_name"] = ascii_name(atrium_first(want))
             changes["last_name"] = ascii_name(want["last"])
         if not u["enabled"]:
             changes["enabled"] = True
