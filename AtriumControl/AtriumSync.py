@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.4
+# Version: 0.2.5
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -24,6 +24,7 @@ global model, Data, q
 
 import datetime
 import json
+import re
 
 try:
     exec(model.PythonContent("AtriumLib").replace("\r\n", "\n").replace("\r", "\n"), globals())
@@ -53,12 +54,13 @@ def name_key(first, last):
     return (ascii_name(first).lower(), ascii_name(last).lower())
 
 
-def plan_sync(qualified, users, links, managed_levels, options):
+def plan_sync(qualified, users, links, managed_levels, options, empty_levels=()):
     """
     qualified:      {peopleId(int): {"first": str (formal), "last": str, "nick": str (optional), "levels": [...]}}
     users:          list of parse_user() dicts from Atrium
     links:          {peopleId(int): guid} as read from the Extra Value
     managed_levels: set of access level ids that rules control
+    empty_levels:   access level ids whose rule matched nobody (a renamed saved search looks just like that)
     returns (actions, warnings)
 
     Actions are dicts with a "kind" of: create, link, update.  "update" carries only the changed fields.  The GUID,
@@ -91,6 +93,14 @@ def plan_sync(qualified, users, links, managed_levels, options):
     if not qualified and live_links and not options.get("allowEmptyRun"):
         warnings.append("Nobody qualifies for any rule but {} people are linked.  Refusing to revoke everything; "
                         "check the searches (or set allowEmptyRun).".format(len(live_links)))
+        return actions, warnings
+
+    # One rule going quiet is as suspicious as all of them: a saved search that was renamed or deleted matches nobody,
+    # and that would read as "everyone holding its level no longer qualifies".
+    holding_empty = [pid for pid, u in live_links.items() if set(u["access_levels"]) & set(empty_levels)]
+    if holding_empty and not options.get("allowEmptyRun"):
+        warnings.append("A rule matched nobody, but {} linked people hold the access level it manages.  Refusing to "
+                        "revoke them; check that rule's search (or set allowEmptyRun).".format(len(holding_empty)))
         return actions, warnings
 
     unlinked_by_name = {}
@@ -278,6 +288,32 @@ def search_people_ids(search):
     return ids
 
 
+def rule_search(rule):
+    """
+    What to hand TouchPoint's search for a rule.  A rule gives either "search" (search code, or a saved search's name)
+    or "queryId" (a saved search's id).  The id is looked up to its current name each run, so the saved search can be
+    renamed and edited in TouchPoint without touching this config; the definition itself always lives in TouchPoint.
+    """
+    query_id = rule.get("queryId")
+    if not query_id:
+        if not rule.get("search"):
+            raise AtriumError("Rule {!r} needs a \"search\" or a \"queryId\".".format(rule.get("name")))
+        return rule["search"]
+    query_id = str(query_id).strip().lower()
+    if not re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", query_id):
+        raise AtriumError("Rule {!r}: '{}' is not a saved search id.".format(rule.get("name"), query_id))
+    rows = list(q.QuerySql("SELECT name AS QueryName FROM Query WHERE QueryId = '{}'".format(query_id)))
+    if not rows:
+        raise AtriumError("Rule {!r}: no saved search has the id {}.".format(rule.get("name"), query_id))
+    name = rows[0].QueryName
+    # TouchPoint finds a saved search by name, so a name two searches share could run the wrong one.
+    sharing = int(list(q.QuerySql("SELECT COUNT(*) AS N FROM Query WHERE name = '{}'".format(name.replace("'", "''"))))[0].N)
+    if sharing != 1:
+        raise AtriumError("Rule {!r}: {} saved searches are named {!r}; rename them so each name is unique."
+                          .format(rule.get("name"), sharing, name))
+    return name
+
+
 def run():
     config = dict(DEFAULT_CONFIG)
     config.update(load_json("AtriumConfig.json", {}))
@@ -292,11 +328,14 @@ def run():
         levels_by_label = dict((l["label"].strip().lower(), l["id"]) for l in client.list_access_levels())
     timer.mark("access levels")
 
-    qualified, managed = {}, set()
+    qualified, managed, empty_levels = {}, set(), set()
     for rule in config["rules"]:
         level = resolve_level(rule["accessLevel"], levels_by_label)
         managed.add(level)
-        for pid in search_people_ids(rule["search"]):
+        matched = search_people_ids(rule_search(rule))
+        if not matched:
+            empty_levels.add(level)
+        for pid in matched:
             entry = qualified.setdefault(pid, {"levels": []})
             entry["levels"].append(level)
     names = people_names(qualified.keys())
@@ -313,7 +352,7 @@ def run():
 
     users = client.list_users()
     timer.mark("Atrium users ({})".format(len(users)))
-    actions, warnings = plan_sync(qualified, users, links, managed, config)
+    actions, warnings = plan_sync(qualified, users, links, managed, config, empty_levels)
     writes = count_writes(actions)
 
     dry = is_dry_run(config)

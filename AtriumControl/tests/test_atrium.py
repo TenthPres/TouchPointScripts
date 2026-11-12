@@ -138,6 +138,28 @@ class PlannerTests(unittest.TestCase):
         acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), [], {}, {7}, OPTS)
         self.assertEqual(acts[0]["first"], "Jonathan")
 
+    def test_a_rule_that_matches_nobody_does_not_strip_the_people_holding_its_level(self):
+        # e.g. a saved search that was renamed or deleted: level 3 is still held by Ann, but nobody qualifies for it
+        users = [user(10, "Ann", "Lee", levels=[3]), user(11, "Bo", "Ray", levels=[0])]
+        qualified = {2: {"first": "Bo", "last": "Ray", "levels": [0]}}
+        acts, warn = S.plan_sync(qualified, users, {1: "G10", 2: "G11"}, {0, 3}, OPTS, empty_levels={3})
+        self.assertEqual(acts, [])
+        self.assertEqual(len(warn), 1)
+        self.assertIn("matched nobody", warn[0])
+
+    def test_an_empty_rule_is_fine_when_nobody_holds_its_level(self):
+        users = [user(11, "Bo", "Ray", levels=[0])]
+        qualified = {2: {"first": "Bo", "last": "Ray", "levels": [0]}}
+        acts, warn = S.plan_sync(qualified, users, {2: "G11"}, {0, 3}, OPTS, empty_levels={3})
+        self.assertEqual((acts, warn), ([], []))
+
+    def test_allowemptyrun_lets_an_empty_rule_revoke(self):
+        users = [user(10, "Ann", "Lee", levels=[3]), user(11, "Bo", "Ray", levels=[0])]
+        qualified = {2: {"first": "Bo", "last": "Ray", "levels": [0]}}
+        acts, _ = S.plan_sync(qualified, users, {1: "G10", 2: "G11"}, {0, 3}, dict(OPTS, allowEmptyRun=True),
+                              empty_levels={3})
+        self.assertEqual([a["peopleId"] for a in acts], [1])
+
     def test_creation_can_be_turned_off(self):
         acts, warn = S.plan_sync(self.q(1, [7]), [], {}, {7}, dict(OPTS, createUsers=False))
         self.assertEqual(acts, [])
@@ -297,6 +319,74 @@ class FakeQuery(object):
         self.limits.append(limit)
         limit = min(limit, self.cap) if self.cap else limit
         return [Person(p) for p in self.people[offset:offset + limit]]
+
+
+class Row(object):
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class SavedSearchTable(object):
+    """A stand-in for q.QuerySql over TouchPoint's saved search (Query) table."""
+
+    def __init__(self, searches):
+        self.searches, self.sql = searches, []  # {guid: name}
+
+    def QuerySql(self, sql):
+        self.sql.append(sql)
+        if "COUNT(*)" in sql:
+            name = sql.split("name = '")[1].rsplit("'", 1)[0].replace("''", "'")
+            return [Row(N=sum(1 for n in self.searches.values() if n == name))]
+        guid = sql.split("QueryId = '")[1].split("'")[0]
+        return [Row(QueryName=self.searches[guid])] if guid in self.searches else []
+
+
+GUID = "51e3c646-1661-4ee5-aa58-2dec4601f7d5"
+
+
+class RuleSearchTests(unittest.TestCase):
+    def setUp(self):
+        self._q = getattr(S, "q", None)
+
+    def tearDown(self):
+        S.q = self._q
+
+    def test_a_plain_search_or_saved_search_name_passes_straight_through(self):
+        S.q = SavedSearchTable({})
+        self.assertEqual(S.rule_search({"search": "IsMemberOf( Org=61 ) = 1[True]"}), "IsMemberOf( Org=61 ) = 1[True]")
+        self.assertEqual(S.rule_search({"search": "Security: Children & Youth (Access Applied)"}),
+                         "Security: Children & Youth (Access Applied)")
+        self.assertEqual(S.q.sql, [])
+
+    def test_a_query_id_is_looked_up_to_the_searchs_current_name(self):
+        S.q = SavedSearchTable({GUID: "Security: Children & Youth (Access Applied)"})
+        self.assertEqual(S.rule_search({"queryId": GUID.upper()}), "Security: Children & Youth (Access Applied)")
+        S.q = SavedSearchTable({GUID: "Renamed since"})
+        self.assertEqual(S.rule_search({"queryId": GUID}), "Renamed since")
+
+    def test_an_unknown_query_id_is_an_error(self):
+        S.q = SavedSearchTable({})
+        with self.assertRaises(L.AtriumError):
+            S.rule_search({"name": "Kids", "queryId": GUID})
+
+    def test_two_searches_with_one_name_is_an_error(self):
+        S.q = SavedSearchTable({GUID: "Same", "00000000-0000-0000-0000-000000000001": "Same"})
+        with self.assertRaises(L.AtriumError):
+            S.rule_search({"queryId": GUID})
+
+    def test_something_that_is_not_an_id_never_reaches_the_database(self):
+        S.q = SavedSearchTable({})
+        with self.assertRaises(L.AtriumError):
+            S.rule_search({"queryId": "x'; DROP TABLE Query;--"})
+        self.assertEqual(S.q.sql, [])
+
+    def test_a_rule_needs_a_search_or_an_id(self):
+        with self.assertRaises(L.AtriumError):
+            S.rule_search({"name": "Empty"})
+
+    def test_names_with_apostrophes_are_escaped(self):
+        S.q = SavedSearchTable({GUID: "Kids' Church"})
+        self.assertEqual(S.rule_search({"queryId": GUID}), "Kids' Church")
 
 
 class SearchTests(unittest.TestCase):

@@ -33,7 +33,7 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   "disableWhenNoAccess": true,
   "rules": [
     {"name": "Staff", "accessLevel": "Staff", "search": "StatusFlag = 'F10'"},
-    {"name": "Children's volunteers", "accessLevel": "ChildrenYouth", "search": "StatusFlag = 'F11'"}
+    {"name": "Children's volunteers", "accessLevel": "ChildrenYouth", "queryId": "51e3c646-1661-4ee5-aa58-2dec4601f7d5"}
   ],
   "schedules": {
     "cycleDays": 7,
@@ -68,7 +68,13 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
   claiming one GUID are both left alone; Atrium users it didn't create or link are never touched.
 - **Access levels outside your rules are preserved** on linked users.
 - **Nothing is deleted.**  People who stop qualifying lose the levels your rules manage and (optionally) are disabled.
-- **An empty result is treated as a broken search**, not as "revoke everyone", unless `allowEmptyRun` is set.
+- **An empty result is treated as a broken search**, not as "revoke everyone", unless `allowEmptyRun` is set.  That
+  covers one rule going quiet as well as all of them: if a rule matches nobody while linked people still hold the
+  access level it manages (say its saved search was renamed or deleted), nothing is revoked and the page says why.
+- **Rules refer to searches, they don't copy them.**  A rule's `accessLevel` is a level name or numeric id.  Its group is
+  `search` (search code, or a saved search's name) or `queryId` (a saved search's id, from its address in TouchPoint).
+  The id is resolved to the saved search's current name on every run, so you can rename and edit the saved search in
+  TouchPoint and the rule follows it.  Two saved searches sharing one name is an error when using `queryId`.
 - **A same-named, unlinked Atrium user is never duplicated.**  `linkByName` (on by default) adopts it when the match is
   unique, trying the formal first name and then the nickname; with it off the person is reported instead.
 - **Users are only created when `createUsers` is true** (it defaults to false).  Until then, someone with no matching
