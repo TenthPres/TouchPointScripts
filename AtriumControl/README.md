@@ -24,6 +24,7 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
 {
   "dryRun": true,
   "peopleDryRun": true,
+  "timeBudgetSeconds": 60,
   "changeLimit": 25,
   "guidExtraValue": "AtriumGuid",
   "linkByName": false,
@@ -76,6 +77,12 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
 
 ## Things to know
 - Atrium holds **5 access levels per user** and **100 periods per schedule**.  Overflows are reported, not silently cut.
+- **Every Atrium request is a slow round trip**, and reading users and access levels walks each table by id.  Tables are
+  read 100 ids per request (dropping to 25 if the controller refuses a wide range), a table that hasn't ended by id
+  20,000 is an error, and `AtriumSync` stops with an error once reading has taken `timeBudgetSeconds` (default 60, `0`
+  for none) so a web gateway doesn't time out first.  The page reports how long each phase took and how many requests it
+  made.  A budget is for reading only; writes are not cut off halfway.  If it still runs long from a web page, run it
+  from a scheduled task instead.
 - **Schedule sync runs in two modes.**  *Full* (daily, MorningBatch) rewrites each schedule's cycle from today's midnight.
   *Near* (hourly, ScheduledTasks) re-reads only the next `horizonHours` (default 4) and swaps just that slice into the
   existing cycle; it never moves the cycle and defers to the next full run if the cycle is missing or stale.  Near mode

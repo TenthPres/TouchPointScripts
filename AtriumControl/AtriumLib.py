@@ -2,7 +2,7 @@
 # Title: Atrium Library
 # Description: Shared client for the CDVI Atrium SDK, used by the other Atrium scripts.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumLib.py
-# Version: 0.1.0
+# Version: 0.1.1
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -28,6 +28,9 @@ NO_ACCESS_LEVEL = 65535  # an empty access level slot
 NEVER = "FFFFFFFF"  # an activation / expiration that never applies
 ACCESS_LEVEL_SLOTS = 5
 MAX_ID_GAP = 100  # how many consecutive unused ids we tolerate before deciding a record table has ended
+BATCH_IDS = 100  # ids read per request when walking a record table; every request is a slow round trip
+FALLBACK_BATCH_IDS = 25  # what we drop to if the controller refuses a wider range
+MAX_RECORD_IDS = 20000  # a table that hasn't ended by this id is treated as a fault, not walked forever
 
 
 class AtriumError(Exception):
@@ -189,6 +192,26 @@ class AtriumClient(object):
         self.expires = None
         self._trans = 0
 
+        self.batch_ids = BATCH_IDS
+        self.request_count = 0
+        self.time_budget = None
+        self.deadline = None
+
+    def set_time_budget(self, seconds):
+        """Any request made more than `seconds` from now raises AtriumError, so a slow run stops before a gateway does."""
+        self.time_budget = int(seconds) if seconds else None
+        self.deadline = self.clock() + datetime.timedelta(seconds=self.time_budget) if self.time_budget else None
+
+    def _send(self, method, url, body=None):
+        """Every request to the controller goes through here, so it can be counted and held to the time budget."""
+        if self.deadline is not None and self.clock() > self.deadline:
+            raise AtriumError("Atrium requests passed the {}-second time budget after {} requests; stopping rather "
+                              "than letting the gateway time out.".format(self.time_budget, self.request_count))
+        self.request_count += 1
+        if body is None:
+            return self.transport(method, url)
+        return self.transport(method, url, body)
+
     # -- session ---------------------------------------------------------------------------------------------------
 
     def _url(self, path, params=None):
@@ -198,7 +221,7 @@ class AtriumClient(object):
         return url
 
     def authenticate(self):
-        temp = self.transport("GET", self._url("login_sdk.xml"))
+        temp = self._send("GET", self._url("login_sdk.xml"))
         root = ET.fromstring(temp)
         conn = root.find(".//CONNECTION")
         dev = root.find(".//DEVICE")
@@ -215,7 +238,7 @@ class AtriumClient(object):
             "login_user": rc4_hex(key, self.username),
             "login_pass": hashlib.md5((key + self.password).encode("utf-8")).hexdigest().upper(),
         })
-        resp = ET.fromstring(self.transport("POST", self._url("login_sdk.xml"), body))
+        resp = ET.fromstring(self._send("POST", self._url("login_sdk.xml"), body))
         cfg = resp.find(".//SDK_CFG")
         conn = resp.find(".//CONNECTION")
         # A failed login still answers 200; the tell is that no user is attached to the session.
@@ -239,7 +262,7 @@ class AtriumClient(object):
         self._ensure_session()
         p = dict(params or {})
         p["sid"] = self.sid
-        raw = self.transport("GET", self._url(path, p))
+        raw = self._send("GET", self._url(path, p))
         plain = decrypt_body(self.key, raw)
         if plain is None:
             raise AtriumError("Could not decrypt response from {}".format(path))
@@ -253,8 +276,8 @@ class AtriumClient(object):
         self._ensure_session()
         self._trans += 1
         xml = self.build_request(kind, self._trans, attrs, data)
-        raw = self.transport("POST", self._url("sdk.xml", {"_": self._trans, "sid": self.sid}),
-                             encrypt_body(self.key, xml))
+        raw = self._send("POST", self._url("sdk.xml", {"_": self._trans, "sid": self.sid}),
+                         encrypt_body(self.key, xml))
         plain = decrypt_body(self.key, raw)
         if plain is None:
             raise AtriumError("Could not decrypt SDK response")
@@ -310,18 +333,37 @@ class AtriumClient(object):
 
     # -- users -----------------------------------------------------------------------------------------------------
 
-    def iter_records(self, obj_type, rec="cfg", serial=None, batch=25, only_used=True):
-        """Walks a record table in batches until it runs out of used ids."""
+    def iter_records(self, obj_type, rec="cfg", serial=None, batch=None, only_used=True, max_ids=MAX_RECORD_IDS):
+        """
+        Walks a record table until it runs out of used ids.  Reads `batch` ids per request (the client's batch_ids by
+        default, dropping to FALLBACK_BATCH_IDS if the controller refuses a wide range).  Carries on from the highest id
+        actually returned, so a controller that trims a range can't make it skip records, and gives up after `max_ids`
+        ids instead of walking a table that never ends.
+        """
         serial = serial or self.master_serial
+        batch = batch or self.batch_ids
         start = 0
         empty_run = 0
         while empty_run < MAX_ID_GAP:
-            rows = self.read_range(serial, obj_type, rec, start, start + batch - 1)
+            if start >= max_ids:
+                raise AtriumError("Read {} ids of the Atrium {} table without reaching its end.".format(start, obj_type))
+            try:
+                rows = self.read_range(serial, obj_type, rec, start, start + batch - 1)
+            except AtriumError:
+                if start == 0 and batch > FALLBACK_BATCH_IDS:
+                    batch = self.batch_ids = FALLBACK_BATCH_IDS
+                    continue
+                raise
+            ids = [int(r["id"]) for r in rows if r.get("id") is not None]
+            next_start = start + batch if len(rows) >= batch or not ids else max(ids) + 1
+            if next_start <= start:
+                raise AtriumError("Atrium ignored the id range asked for ({}-{} of {}).".format(
+                    start, start + batch - 1, obj_type))
             used = [r for r in rows if r.get("obj_status", "used") == "used"]
             for r in used:
                 yield r
-            empty_run = 0 if used else empty_run + batch
-            start += batch
+            empty_run = 0 if used else empty_run + (next_start - start)
+            start = next_start
 
     def list_users(self):
         return [parse_user(r) for r in self.iter_records("user")]

@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.0
+# Version: 0.2.1
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -22,6 +22,7 @@
 
 global model, Data, q
 
+import datetime
 import json
 
 try:
@@ -33,6 +34,7 @@ DEFAULT_CONFIG = {
     "dryRun": True,
     "peopleDryRun": True,  # this script stays a dry run until this is the literal false, even once "dryRun" is false
     "changeLimit": 25,
+    "timeBudgetSeconds": 60,  # reading from Atrium stops with an error past this, before a web gateway gives up; 0 = none
     "guidExtraValue": "AtriumGuid",
     "linkByName": False,  # adopt an existing, unlinked Atrium user when exactly one has the same first and last name
     "syncNames": True,
@@ -221,6 +223,25 @@ def people_names(pids):
     return names
 
 
+class PhaseTimer(object):
+    """Records how long each phase of a run took and how many Atrium requests it made, to show where a slow run went."""
+
+    def __init__(self, client, clock=datetime.datetime.now):
+        self.client, self.clock = client, clock
+        self.start = self.last = clock()
+        self.last_requests = client.request_count
+        self.phases = []
+
+    def mark(self, label):
+        now, count = self.clock(), self.client.request_count
+        self.phases.append((label, (now - self.last).total_seconds(), count - self.last_requests))
+        self.last, self.last_requests = now, count
+
+    def summary(self):
+        parts = ["{} {:.1f}s ({} requests)".format(label, secs, n) for label, secs, n in self.phases]
+        return "{}.  Total {:.1f}s.".format("; ".join(parts), (self.last - self.start).total_seconds())
+
+
 def is_dry_run(config):
     """True unless both the shared dryRun and this script's own peopleDryRun have been turned off on purpose."""
     return bool(config["dryRun"]) or config["peopleDryRun"] is not False
@@ -247,7 +268,10 @@ def run():
 
     client = AtriumClient(model.Setting("AtriumApiUrl", ""), model.Setting("AtriumApiUser", ""),
                           model.Setting("AtriumApiPassword", ""), touchpoint_transport(model))
+    client.set_time_budget(config["timeBudgetSeconds"])
+    timer = PhaseTimer(client)
     levels_by_label = dict((l["label"].strip().lower(), l["id"]) for l in client.list_access_levels())
+    timer.mark("access levels")
 
     qualified, managed = {}, set()
     for rule in config["rules"]:
@@ -266,12 +290,16 @@ def run():
     links = dict((int(r.PeopleId), r.Data) for r in q.QuerySql(
         "SELECT PeopleId, Data FROM PeopleExtra WHERE Field = '{}' AND Data IS NOT NULL AND Data <> ''"
         .format(ev.replace("'", "''"))))
+    timer.mark("TouchPoint searches and links")
 
-    actions, warnings = plan_sync(qualified, client.list_users(), links, managed, config)
+    users = client.list_users()
+    timer.mark("Atrium users ({})".format(len(users)))
+    actions, warnings = plan_sync(qualified, users, links, managed, config)
     writes = count_writes(actions)
 
     dry = is_dry_run(config)
     print("<h3>Atrium Sync{}</h3>".format(" (dry run)" if dry else ""))
+    print("<p>Timing: {}</p>".format(timer.summary()))
     for w in warnings:
         print("<p><b>Warning:</b> {}</p>".format(w))
     print("<p>{} qualifying people, {} planned actions ({} Atrium writes).</p>".format(len(qualified), len(actions), writes))
@@ -284,6 +312,8 @@ def run():
         print("<p><b>Not applied:</b> {} writes exceeds changeLimit of {}.  Review the plan, then raise the limit or "
               "run again after correcting the cause.</p>".format(writes, config["changeLimit"]))
         return
+
+    client.set_time_budget(None)  # the budget is for reading; stopping halfway through a write could orphan a new user
 
     def set_link(pid, guid):
         model.AddExtraValueText(pid, ev, guid)

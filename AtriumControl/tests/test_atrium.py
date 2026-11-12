@@ -498,5 +498,102 @@ class AreaWindowTests(unittest.TestCase):
         self.assertEqual(SS.display_name(None), "(no name)")
 
 
+def table_client(used, total=2000, cap=None, refuse_over=None):
+    """An AtriumClient whose read_range serves a fake record table: ids in `used` are used, the rest free."""
+    client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+    calls = []
+
+    def read_range(serial, obj_type, rec, lo, hi):
+        calls.append((lo, hi))
+        if refuse_over and hi - lo + 1 > refuse_over:
+            raise L.AtriumError("range too wide")
+        if cap:
+            hi = min(hi, lo + cap - 1)
+        return [{"id": str(i), "obj_status": "used" if used(i) else "free"} for i in range(lo, min(hi, total - 1) + 1)]
+
+    client.read_range = read_range
+    return client, calls
+
+
+class RecordWalkTests(unittest.TestCase):
+    def test_walks_in_wide_batches_and_stops_after_an_empty_one(self):
+        client, calls = table_client(lambda i: i < 340)
+        self.assertEqual([int(r["id"]) for r in client.iter_records("user")], list(range(340)))
+        self.assertEqual(calls, [(0, 99), (100, 199), (200, 299), (300, 399), (400, 499)])
+
+    def test_falls_back_to_narrow_batches_if_the_controller_refuses_a_wide_range(self):
+        client, calls = table_client(lambda i: i < 60, refuse_over=25)
+        self.assertEqual(len(list(client.iter_records("user"))), 60)
+        self.assertEqual(calls[0], (0, 99))
+        self.assertEqual(calls[1], (0, 24))
+        self.assertEqual(client.batch_ids, L.FALLBACK_BATCH_IDS)
+
+    def test_a_controller_that_trims_the_range_does_not_make_it_skip_records(self):
+        client, _ = table_client(lambda i: i < 340, cap=25)
+        self.assertEqual([int(r["id"]) for r in client.iter_records("user")], list(range(340)))
+
+    def test_a_table_that_never_ends_is_an_error(self):
+        client, _ = table_client(lambda i: True, total=10 ** 6)
+        with self.assertRaises(L.AtriumError):
+            list(client.iter_records("user", max_ids=500))
+
+    def test_a_controller_that_ignores_the_range_is_an_error(self):
+        client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        client.read_range = lambda serial, t, rec, lo, hi: [{"id": str(i), "obj_status": "used"} for i in range(25)]
+        with self.assertRaises(L.AtriumError):
+            list(client.iter_records("user"))
+
+
+class TimeBudgetTests(unittest.TestCase):
+    class Clock(object):
+        def __init__(self):
+            self.now = datetime.datetime(2026, 11, 12, 9, 0, 0)
+
+        def __call__(self):
+            return self.now
+
+    def client(self, clock):
+        c = L.AtriumClient("http://x", "u", "p", transport=None, clock=clock)
+        c.transport = lambda method, url, body=None: "ok"
+        return c
+
+    def test_requests_are_counted(self):
+        c = self.client(self.Clock())
+        c._send("GET", "u")
+        c._send("POST", "u", "body")
+        self.assertEqual(c.request_count, 2)
+
+    def test_a_request_past_the_budget_is_refused(self):
+        clock = self.Clock()
+        c = self.client(clock)
+        c.set_time_budget(60)
+        c._send("GET", "u")
+        clock.now += datetime.timedelta(seconds=61)
+        with self.assertRaises(L.AtriumError):
+            c._send("GET", "u")
+        self.assertEqual(c.request_count, 1)
+
+    def test_no_budget_means_no_limit(self):
+        clock = self.Clock()
+        c = self.client(clock)
+        c.set_time_budget(60)
+        c.set_time_budget(None)
+        clock.now += datetime.timedelta(hours=1)
+        self.assertEqual(c._send("GET", "u"), "ok")
+
+    def test_phase_timer_reports_seconds_and_requests(self):
+        clock = self.Clock()
+        c = self.client(clock)
+        timer = S.PhaseTimer(c, clock=clock)
+        c._send("GET", "u")
+        c._send("GET", "u")
+        clock.now += datetime.timedelta(seconds=12.5)
+        timer.mark("levels")
+        c._send("GET", "u")
+        clock.now += datetime.timedelta(seconds=30)
+        timer.mark("users")
+        self.assertEqual(timer.summary(), "levels 12.5s (2 requests); users 30.0s (1 requests).  Total 42.5s.")
+
+
 if __name__ == "__main__":
     unittest.main()
