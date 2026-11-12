@@ -172,8 +172,10 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(acts, [])
         self.assertEqual(len(warn), 2)  # one per person; the Atrium users go in the report, once
         self.assertIn("Person 7 (Jonathan Smith, goes by Jon)", warn[0])
-        self.assertIn("put the right user's GUID in the AtriumGuid Extra Value on person 7", warn[0])
-        self.assertIn("in the table below", warn[0])
+        self.assertEqual(warn[0], "Person 7 (Jonathan Smith, goes by Jon) has no matching Atrium user, and creating "
+                                  "users is turned off (createUsers).")
+        self.assertNotIn("link by hand", warn[0])
+        self.assertNotIn("table below", warn[0])
         self.assertIn("Person 8 (Kay Nobody)", warn[1])
         self.assertEqual(sorted(u["guid"] for u in report["unlinked_users"]), ["G10", "G12", "G13"])
 
@@ -202,11 +204,6 @@ class PlannerTests(unittest.TestCase):
         acts, warn = S.plan_sync(self.named(7, "Jonathan", "Jon", last="Smith"), [], {}, {7}, self.off())
         self.assertEqual((acts, len(warn)), ([], 1))
 
-    def test_the_extra_value_name_comes_from_the_config(self):
-        _, warn = S.plan_sync(self.named(7, "Jonathan", "Jon", last="Smith"), [], {}, {7},
-                              self.off(guidExtraValue="MyLink"))
-        self.assertIn("MyLink Extra Value on person 7", warn[0])
-
     def test_the_unlinked_users_come_out_as_an_html_table(self):
         users = [user(10, "Ann", "Lee"), user(11, "Bo <b>", "R&D")]
         html = S.unlinked_users_table(users)
@@ -232,7 +229,7 @@ class PlannerTests(unittest.TestCase):
         users = [user(10, "Ann", "Lee")]
         _, warn = S.plan_sync(self.q(1, [7]), users, {}, {7}, dict(OPTS, linkByName=False))
         self.assertIn("Ann Lee (GUID G10)", warn[0])
-        self.assertIn("AtriumGuid Extra Value on person 1", warn[0])
+        self.assertNotIn("link by hand", warn[0])
 
     def test_an_ambiguous_match_lists_every_candidate(self):
         users = [user(10, "Ann", "Lee"), user(11, "Ann", "Lee")]

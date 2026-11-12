@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.8
+# Version: 0.2.9
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -145,7 +145,6 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
     unlinked_by_name = {}
     adopted = set()  # GUIDs of Atrium users this plan has already linked to someone
     unmatched = 0  # people left alone because nobody in Atrium matched and creating users is off
-    ev = options.get("guidExtraValue", "AtriumGuid")
     for u in users:
         if u["guid"] not in claimed:
             unlinked_by_name.setdefault(name_key(u["first_name"], u["last_name"]), []).append(u)
@@ -165,15 +164,14 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
                 nick_key = name_key(want["nick"], want["last"])
                 if unlinked_by_name.get(nick_key):
                     match_key, candidates = nick_key, unlinked_by_name[nick_key]
-            by_hand = "To link by hand, put the right user's GUID in the {} Extra Value on person {}.".format(ev, pid)
             if candidates and not options.get("linkByName"):
                 warnings.append("{} has the same name as an existing, unlinked Atrium user: {}.  Not creating a "
-                                "duplicate; turn on linkByName to adopt them.  {}".format(
-                                    describe_person(pid, want), "; ".join(describe_user(c) for c in candidates), by_hand))
+                                "duplicate; turn on linkByName to adopt them.".format(
+                                    describe_person(pid, want), "; ".join(describe_user(c) for c in candidates)))
                 continue
             if len(candidates) > 1:
-                warnings.append("{} matches {} unlinked Atrium users by name, so none was chosen: {}.  {}".format(
-                    describe_person(pid, want), len(candidates), "; ".join(describe_user(c) for c in candidates), by_hand))
+                warnings.append("{} matches {} unlinked Atrium users by name, so none was chosen: {}.".format(
+                    describe_person(pid, want), len(candidates), "; ".join(describe_user(c) for c in candidates)))
                 continue
             if len(candidates) == 1:
                 u = candidates[0]
@@ -183,9 +181,8 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
             else:
                 if not options.get("createUsers"):
                     unmatched += 1
-                    warnings.append("{} has no matching Atrium user, and creating users is turned off (createUsers).  "
-                                    "{}  The Atrium users nobody is linked to are in the table below.".format(
-                                        describe_person(pid, want), by_hand))
+                    warnings.append("{} has no matching Atrium user, and creating users is turned off "
+                                    "(createUsers).".format(describe_person(pid, want)))
                     continue
                 levels = _unique(want["levels"])
                 if len(levels) > ACCESS_LEVEL_SLOTS:
