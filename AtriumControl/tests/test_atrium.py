@@ -257,6 +257,29 @@ class SearchTests(unittest.TestCase):
         S.q = FakeQuery([])
         self.assertEqual(S.search_people_ids("anything"), set())
 
+
+class PeopleDryRunTests(unittest.TestCase):
+    def dry(self, **kw):
+        config = dict(S.DEFAULT_CONFIG)
+        config.update(kw)
+        return S.is_dry_run(config)
+
+    def test_defaults_are_dry(self):
+        self.assertTrue(self.dry())
+
+    def test_shared_dry_run_off_does_not_make_the_people_sync_live(self):
+        self.assertTrue(self.dry(dryRun=False))
+
+    def test_only_both_flags_off_goes_live(self):
+        self.assertFalse(self.dry(dryRun=False, peopleDryRun=False))
+
+    def test_shared_dry_run_on_wins(self):
+        self.assertTrue(self.dry(dryRun=True, peopleDryRun=False))
+
+    def test_a_string_or_missing_value_stays_dry(self):
+        self.assertTrue(self.dry(dryRun=False, peopleDryRun="false"))
+        self.assertTrue(self.dry(dryRun=False, peopleDryRun=None))
+
     def test_a_partial_result_stops_the_sync(self):
         S.q = FakeQuery(list(range(1, 2501)), cap=1000)
         with self.assertRaises(L.AtriumError):

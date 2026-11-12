@@ -17,7 +17,8 @@
 #  - It only ever touches Atrium users linked through the Extra Value.  Everyone else in Atrium is left alone.
 #  - Access levels that no rule mentions are left alone on linked users.
 #  - It never deletes anything.  People who stop qualifying lose their managed levels and are optionally disabled.
-#  - Nothing is written unless "dryRun" is false, and no run may make more than "changeLimit" changes.
+#  - Nothing is written unless "dryRun" is false and "peopleDryRun" is explicitly false, and no run may make more than
+#    "changeLimit" changes.  ("dryRun" is shared with AtriumScheduleSync; "peopleDryRun" gates only this script.)
 
 global model, Data, q
 
@@ -30,6 +31,7 @@ except NameError:  # running under test, where AtriumLib is imported normally
 
 DEFAULT_CONFIG = {
     "dryRun": True,
+    "peopleDryRun": True,  # this script stays a dry run until this is the literal false, even once "dryRun" is false
     "changeLimit": 25,
     "guidExtraValue": "AtriumGuid",
     "linkByName": False,  # adopt an existing, unlinked Atrium user when exactly one has the same first and last name
@@ -219,6 +221,11 @@ def people_names(pids):
     return names
 
 
+def is_dry_run(config):
+    """True unless both the shared dryRun and this script's own peopleDryRun have been turned off on purpose."""
+    return bool(config["dryRun"]) or config["peopleDryRun"] is not False
+
+
 def search_people_ids(search):
     """
     Every PeopleId a TouchPoint search matches.  q.QueryList stops at 1000 people unless told otherwise, and a short
@@ -263,14 +270,15 @@ def run():
     actions, warnings = plan_sync(qualified, client.list_users(), links, managed, config)
     writes = count_writes(actions)
 
-    print("<h3>Atrium Sync{}</h3>".format(" (dry run)" if config["dryRun"] else ""))
+    dry = is_dry_run(config)
+    print("<h3>Atrium Sync{}</h3>".format(" (dry run)" if dry else ""))
     for w in warnings:
         print("<p><b>Warning:</b> {}</p>".format(w))
     print("<p>{} qualifying people, {} planned actions ({} Atrium writes).</p>".format(len(qualified), len(actions), writes))
     for a in actions:
         print("<div>{}</div>".format(json.dumps(a)))
 
-    if config["dryRun"]:
+    if dry:
         return
     if writes > config["changeLimit"]:
         print("<p><b>Not applied:</b> {} writes exceeds changeLimit of {}.  Review the plan, then raise the limit or "

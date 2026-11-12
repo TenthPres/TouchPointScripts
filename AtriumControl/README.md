@@ -15,11 +15,15 @@ Integration between TouchPoint and a CDVI Atrium access control system, built on
    it needs.  (Atrium sessions last 15 minutes; the client logs in again by itself.)
 2. In TouchPoint Settings, add `AtriumApiUrl`, `AtriumApiUser`, `AtriumApiPassword`.
 3. Create the Special Content text file `AtriumConfig.json` (below).  **`dryRun` defaults to true**: scripts print what
-   they would do and change nothing until you set it false.
+   they would do and change nothing until you set it false.  `dryRun` is shared by `AtriumScheduleSync` and
+   `AtriumSync`, so the people sync has a second, separate gate: **`peopleDryRun` also defaults to true**, and
+   `AtriumSync` only writes once `dryRun` is false *and* `peopleDryRun` is the literal `false`.  That lets the schedule
+   sync run live while the people sync is still being proven.
 
 ```json
 {
   "dryRun": true,
+  "peopleDryRun": true,
   "changeLimit": 25,
   "guidExtraValue": "AtriumGuid",
   "linkByName": false,
