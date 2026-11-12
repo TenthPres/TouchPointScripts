@@ -8,6 +8,8 @@ Usage:
     python atrium_probe.py get users.xml
     python atrium_probe.py sdk-read 00009F90 access_lvl cfg 0
     python atrium_probe.py sdk-range 00009F90 access_lvl cfg 8 12
+    python atrium_probe.py sdk-read 00009F90 user cfg 123      # names, GUIDs, text and password-like fields are blanked;
+                                                                # add --raw to see them
     python atrium_probe.py post records_sdk.xml list_records obj_type=12
 """
 
@@ -125,15 +127,27 @@ Probe.sdk_read = sdk_read
 Probe.sdk_range = sdk_range
 
 
+def redact(text):
+    """
+    Blanks names, GUIDs, text fields and anything password-like in a record, so it can be pasted into a chat or a ticket;
+    flags and numbers stay, which is what shows how a record is set up.  sdk-read and sdk-range do this unless --raw is given.
+    """
+    return re.sub(r'\b(label\d*|guid\d*|utf\d+|\w*(?:pass|pwd|pin|key|secret)\w*)="[^"]*"', r'\1="X"', text,
+                  flags=re.I)
+
+
 def main(argv):
+    raw = "--raw" in argv
+    argv = [a for a in argv if a != "--raw"]
+    show = (lambda text: text) if raw else redact
     p = Probe()
     p.login()
     if argv[0] == "get":
         print(p.get(argv[1], dict(a.split("=", 1) for a in argv[2:])))
     elif argv[0] == "sdk-read":
-        print(p.sdk_read(*argv[1:5]))
+        print(show(p.sdk_read(*argv[1:5])))
     elif argv[0] == "sdk-range":
-        print(p.sdk_range(*argv[1:6]))
+        print(show(p.sdk_range(*argv[1:6])))
     elif argv[0] == "post":
         print(p.post(argv[1], argv[2], dict(a.split("=", 1) for a in argv[3:])))
     else:
