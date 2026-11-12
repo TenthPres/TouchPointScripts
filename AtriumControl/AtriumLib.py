@@ -2,7 +2,7 @@
 # Title: Atrium Library
 # Description: Shared client for the CDVI Atrium SDK, used by the other Atrium scripts.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumLib.py
-# Version: 0.1.3
+# Version: 0.1.4
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -348,17 +348,19 @@ class AtriumClient(object):
         start = 0
         empty_run = 0
         last_used = None
+        trace = []  # one short line per batch, quoted in errors so a run that goes wrong says how it went wrong
         while empty_run < MAX_ID_GAP:
             if start >= max_ids:
-                raise AtriumError("Read {} ids of the Atrium {} table without reaching its end.  Last record read: {}"
-                                  .format(start, obj_type, _sample(last_used)))
+                raise AtriumError("Read {} ids of the Atrium {} table without reaching its end.  Last record read: {}  "
+                                  "Batches: {}".format(start, obj_type, _sample(last_used), "; ".join(trace[-6:])))
             try:
                 rows = self.read_range(serial, obj_type, rec, start, start + batch - 1)
-            except AtriumError:
+            except AtriumError as e:
                 if start == 0 and batch > FALLBACK_BATCH_IDS:
                     batch = self.batch_ids = FALLBACK_BATCH_IDS
                     continue
-                raise
+                raise AtriumError("{}  Scan of the {} table so far ({} batches, last 6): {}".format(
+                    e, obj_type, len(trace), "; ".join(trace[-6:]) or "none"))
             if rows and not any("obj_status" in r for r in rows):
                 raise AtriumError("Atrium's range read of the {} table doesn't say which ids are in use, so used and "
                                   "free records can't be told apart.  First record: {}".format(obj_type, _sample(rows[0])))
@@ -368,6 +370,7 @@ class AtriumClient(object):
                 raise AtriumError("Atrium ignored the id range asked for ({}-{} of {}).".format(
                     start, start + batch - 1, obj_type))
             used = [r for r in rows if r.get("obj_status") == "used"]
+            trace.append("ids {}-{}: {} rows, {} used".format(start, start + batch - 1, len(rows), len(used)))
             for r in used:
                 last_used = r
                 yield r

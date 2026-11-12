@@ -529,6 +529,22 @@ class RecordWalkTests(unittest.TestCase):
         self.assertLessEqual(len(calls), 11)
         self.assertIn("access_lvl", str(ctx.exception))
         self.assertIn("obj_status=used", str(ctx.exception))
+        self.assertIn("ids 900-999: 100 rows, 100 used", str(ctx.exception))
+
+    def test_an_error_partway_through_says_which_batches_came_before(self):
+        client, _ = table_client(lambda i: True, total=10 ** 6)
+        real = client.read_range
+
+        def flaky(serial, obj_type, rec, lo, hi):
+            if lo >= 200:
+                raise L.AtriumError("boom")
+            return real(serial, obj_type, rec, lo, hi)
+
+        client.read_range = flaky
+        with self.assertRaises(L.AtriumError) as ctx:
+            list(client.iter_records("user"))
+        self.assertIn("boom", str(ctx.exception))
+        self.assertIn("ids 0-99: 100 rows, 100 used; ids 100-199: 100 rows, 100 used", str(ctx.exception))
 
     def test_range_reads_that_dont_report_obj_status_fail_fast_with_a_sample(self):
         client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
