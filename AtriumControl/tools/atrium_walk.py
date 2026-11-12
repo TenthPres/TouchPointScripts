@@ -43,6 +43,9 @@ def main(argv):
     began = time.time()
     count = sum(1 for _ in client.iter_records(table, max_ids=max_ids))
     print("{} records in {}, {} requests, {:.1f}s".format(count, table, client.request_count, time.time() - began))
+    if client.fallback_reason:
+        print("A wide read failed and the scan dropped to {} ids per request: {}".format(
+            client.batch_ids, client.fallback_reason))
 
 
 if __name__ == "__main__":

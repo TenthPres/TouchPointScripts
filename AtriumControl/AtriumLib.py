@@ -2,7 +2,7 @@
 # Title: Atrium Library
 # Description: Shared client for the CDVI Atrium SDK, used by the other Atrium scripts.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumLib.py
-# Version: 0.1.6
+# Version: 0.1.7
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -194,6 +194,7 @@ class AtriumClient(object):
         self._trans = 0
 
         self.batch_ids = BATCH_IDS
+        self.fallback_reason = None
         self.request_count = 0
         self.time_budget = None
         self.deadline = None
@@ -372,6 +373,8 @@ class AtriumClient(object):
                 rows = self.read_range(serial, obj_type, rec, start, start + batch - 1)
             except AtriumError as e:
                 if start == 0 and batch > FALLBACK_BATCH_IDS:
+                    self.fallback_reason = str(e)  # why a wide read was abandoned, for anyone wondering about the extra request
+                    trace.append("ids {}-{} failed: {}".format(start, start + batch - 1, str(e)[:160]))
                     batch = self.batch_ids = FALLBACK_BATCH_IDS
                     continue
                 raise AtriumError("{}  Scan of the {} table so far ({} batches, last 6): {}".format(

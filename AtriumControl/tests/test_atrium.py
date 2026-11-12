@@ -582,6 +582,7 @@ class RecordWalkTests(unittest.TestCase):
         self.assertEqual(calls[0], (0, 99))
         self.assertEqual(calls[1], (0, 24))
         self.assertEqual(client.batch_ids, L.FALLBACK_BATCH_IDS)
+        self.assertEqual(client.fallback_reason, "range too wide")
 
     def test_a_controller_that_trims_the_range_does_not_make_it_skip_records(self):
         client, _ = table_client(lambda i: i < 340, cap=25)
