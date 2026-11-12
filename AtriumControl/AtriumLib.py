@@ -2,7 +2,7 @@
 # Title: Atrium Library
 # Description: Shared client for the CDVI Atrium SDK, used by the other Atrium scripts.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumLib.py
-# Version: 0.1.4
+# Version: 0.1.5
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -361,6 +361,11 @@ class AtriumClient(object):
                     continue
                 raise AtriumError("{}  Scan of the {} table so far ({} batches, last 6): {}".format(
                     e, obj_type, len(trace), "; ".join(trace[-6:]) or "none"))
+            refused = [r for r in rows if r.get("res") not in (None, "ok")]
+            if refused:
+                raise AtriumError("Atrium refused {} of {} records in the range read of the {} table on controller {} "
+                                  "(res={}).  First: {}".format(len(refused), len(rows), obj_type, serial,
+                                                                refused[0].get("res"), _sample(refused[0])))
             if rows and not any("obj_status" in r for r in rows):
                 raise AtriumError("Atrium's range read of the {} table doesn't say which ids are in use, so used and "
                                   "free records can't be told apart.  First record: {}".format(obj_type, _sample(rows[0])))

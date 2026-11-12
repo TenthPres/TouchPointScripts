@@ -560,6 +560,17 @@ class RecordWalkTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("label3=L0", str(ctx.exception))
 
+    def test_records_the_controller_refused_are_reported_as_such(self):
+        # What the live controller sent back to the library: error rows, not records.
+        client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        client.read_range = lambda serial, t, rec, lo, hi: [{"id": str(i), "cnt": "0", "res": "err_arp"}
+                                                            for i in range(lo, hi + 1)]
+        with self.assertRaises(L.AtriumError) as ctx:
+            list(client.iter_records("access_lvl"))
+        self.assertIn("refused 100 of 100", str(ctx.exception))
+        self.assertIn("res=err_arp", str(ctx.exception))
+        self.assertIn("controller S", str(ctx.exception))
+
     def test_rules_with_only_numeric_levels_skip_reading_level_names(self):
         self.assertFalse(S.rules_need_level_names([{"accessLevel": 3}, {"accessLevel": "12"}]))
         self.assertTrue(S.rules_need_level_names([{"accessLevel": 3}, {"accessLevel": "Staff"}]))

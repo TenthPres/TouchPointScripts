@@ -24,15 +24,19 @@ def main(argv):
     table = argv[0]
     max_ids = int(argv[1]) if len(argv) > 1 else None
 
+    # ATRIUM_SERIAL, if set, is used as the controller serial in place of the one the login reports.
     client = L.AtriumClient(os.environ["ATRIUM_URL"], os.environ["ATRIUM_USER"], os.environ["ATRIUM_PASS"],
-                            L.urllib_transport(30))
+                            L.urllib_transport(30), master_serial=os.environ.get("ATRIUM_SERIAL") or None)
     real_read_range = client.read_range
 
     def logged(serial, obj_type, rec, lo, hi):
         began = time.time()
         rows = real_read_range(serial, obj_type, rec, lo, hi)
         used = sum(1 for r in rows if r.get("obj_status") == "used")
-        print("read ids {}-{}: {} rows, {} used, {:.1f}s".format(lo, hi, len(rows), used, time.time() - began))
+        print("read ids {}-{} from controller {}: {} rows, {} used, {:.1f}s".format(
+            lo, hi, serial, len(rows), used, time.time() - began))
+        if rows and not used:
+            print("  first record came back as: {}".format(dict(rows[0])))  # an error row carries no record data
         return rows
 
     client.read_range = logged
