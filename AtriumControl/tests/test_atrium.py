@@ -101,6 +101,42 @@ class PlannerTests(unittest.TestCase):
     def q(self, pid, levels, first="Ann", last="Lee"):
         return {pid: {"first": first, "last": last, "levels": levels}}
 
+    def named(self, pid, first, nick, last="Gibson", levels=(7,)):
+        return {pid: {"first": first, "nick": nick, "last": last, "levels": list(levels)}}
+
+    def test_a_formal_name_in_atrium_matches_a_nickname_in_touchpoint(self):
+        users = [user(10, "Jonathan", "Gibson")]
+        opts = dict(OPTS, linkByName=True)
+        acts, warn = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
+        self.assertEqual([a["kind"] for a in acts], ["link", "update"])
+        self.assertEqual(acts[0]["guid"], "G10")
+        self.assertEqual(warn, [])
+
+    def test_a_nickname_already_in_atrium_is_found_rather_than_duplicated(self):
+        users = [user(10, "Jonny", "Gibson")]
+        opts = dict(OPTS, linkByName=True)
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
+        self.assertEqual(acts[0], {"kind": "link", "peopleId": 1, "guid": "G10"})
+        self.assertNotIn("create", [a["kind"] for a in acts])
+        # and syncNames puts the formal name into Atrium
+        self.assertEqual(acts[1]["changes"]["first_name"], "Jonathan")
+
+    def test_without_linkbyname_a_nickname_match_warns_and_creates_nothing(self):
+        users = [user(10, "Jonny", "Gibson")]
+        acts, warn = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, OPTS)
+        self.assertEqual(acts, [])
+        self.assertEqual(len(warn), 1)
+
+    def test_the_formal_name_wins_over_a_nickname_match(self):
+        users = [user(10, "Jonathan", "Gibson"), user(11, "Jonny", "Gibson")]
+        opts = dict(OPTS, linkByName=True)
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
+        self.assertEqual(acts[0], {"kind": "link", "peopleId": 1, "guid": "G10"})
+
+    def test_a_person_with_no_match_is_created_under_their_formal_name(self):
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), [], {}, {7}, OPTS)
+        self.assertEqual(acts[0]["first"], "Jonathan")
+
     def test_new_person_is_created_with_levels(self):
         acts, warn = S.plan_sync(self.q(1, [7]), [], {}, {7}, OPTS)
         self.assertEqual([a["kind"] for a in acts], ["create"])

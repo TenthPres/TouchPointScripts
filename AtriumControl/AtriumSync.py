@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.2
+# Version: 0.2.3
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -54,7 +54,7 @@ def name_key(first, last):
 
 def plan_sync(qualified, users, links, managed_levels, options):
     """
-    qualified:      {peopleId(int): {"first": str, "last": str, "levels": [accessLevelId, ...]}}
+    qualified:      {peopleId(int): {"first": str (formal), "last": str, "nick": str (optional), "levels": [...]}}
     users:          list of parse_user() dicts from Atrium
     links:          {peopleId(int): guid} as read from the Extra Value
     managed_levels: set of access level ids that rules control
@@ -104,7 +104,14 @@ def plan_sync(qualified, users, links, managed_levels, options):
         u = live_links.get(pid)
 
         if u is None:
-            candidates = unlinked_by_name.get(name_key(want["first"], want["last"]), [])
+            # Atrium uses people's formal first names, so match on that first.  Only if nobody has it, try their
+            # nickname: better to find an existing user under a nickname than to create a duplicate.
+            match_key = name_key(want["first"], want["last"])
+            candidates = unlinked_by_name.get(match_key, [])
+            if not candidates and want.get("nick"):
+                nick_key = name_key(want["nick"], want["last"])
+                if unlinked_by_name.get(nick_key):
+                    match_key, candidates = nick_key, unlinked_by_name[nick_key]
             if candidates and not options.get("linkByName"):
                 warnings.append("Person {} has the same name as an existing, unlinked Atrium user; not creating a "
                                 "duplicate.  Link them (linkByName) or resolve by hand.".format(pid))
@@ -114,7 +121,7 @@ def plan_sync(qualified, users, links, managed_levels, options):
                 continue
             if len(candidates) == 1:
                 u = candidates[0]
-                unlinked_by_name[name_key(want["first"], want["last"])] = []
+                unlinked_by_name[match_key] = []
                 actions.append({"kind": "link", "peopleId": pid, "guid": u["guid"]})
             else:
                 levels = _unique(want["levels"])
@@ -217,9 +224,9 @@ def people_names(pids):
     for i in range(0, len(pids), 400):
         chunk = pids[i:i + 400]
         for r in q.QuerySql(
-                "SELECT PeopleId, COALESCE(NULLIF(NickName, ''), FirstName) AS First, LastName AS Last "
+                "SELECT PeopleId, FirstName AS First, NickName AS Nick, LastName AS Last "
                 "FROM People WHERE PeopleId IN ({})".format(",".join(str(int(p)) for p in chunk))):
-            names[int(r.PeopleId)] = (r.First or "", r.Last or "")
+            names[int(r.PeopleId)] = (r.First or "", r.Last or "", r.Nick or "")
     return names
 
 
@@ -292,7 +299,7 @@ def run():
         if pid not in names:
             del qualified[pid]
             continue
-        qualified[pid]["first"], qualified[pid]["last"] = names[pid]
+        qualified[pid]["first"], qualified[pid]["last"], qualified[pid]["nick"] = names[pid]
 
     links = dict((int(r.PeopleId), r.Data) for r in q.QuerySql(
         "SELECT PeopleId, Data FROM PeopleExtra WHERE Field = '{}' AND Data IS NOT NULL AND Data <> ''"
