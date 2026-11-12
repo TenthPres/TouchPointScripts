@@ -23,7 +23,6 @@
 global model, Data, q
 
 import datetime
-import difflib
 import json
 import re
 
@@ -68,27 +67,8 @@ def describe_person(pid, want):
 
 
 def describe_user(u):
-    """An Atrium user as the warnings name them: the id to find them by and the GUID that makes the link."""
-    return '#{} "{}" (GUID {})'.format(u["id"], u["name"], u["guid"])
-
-
-def suggest_users(want, unclaimed, limit=3):
-    """
-    The unlinked Atrium users most likely to be this person under a different spelling, best first.  Someone's formal
-    or nickname may not be what Atrium holds, but their surname usually is, so same-surname users come first, ranked by
-    how close their first name is; failing that, users whose surname and first name are both close.
-    """
-    firsts = [_plain(want["first"])] + ([_plain(want["nick"])] if want.get("nick") else [])
-    last = _plain(want["last"])
-
-    def first_score(u):
-        return max(difflib.SequenceMatcher(None, f, _plain(u["first_name"])).ratio() for f in firsts)
-
-    pool = [u for u in unclaimed if _plain(u["last_name"]) == last]
-    if not pool:
-        pool = [u for u in unclaimed
-                if difflib.SequenceMatcher(None, last, _plain(u["last_name"])).ratio() >= 0.8 and first_score(u) >= 0.6]
-    return sorted(pool, key=first_score, reverse=True)[:limit]
+    """An Atrium user as the warnings name them: their name in Atrium and the GUID that makes the link."""
+    return '{} (GUID {})'.format(u["name"], u["guid"])
 
 
 def plan_sync(qualified, users, links, managed_levels, options, empty_levels=()):
@@ -142,6 +122,7 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=())
 
     unlinked_by_name = {}
     adopted = set()  # GUIDs of Atrium users this plan has already linked to someone
+    unmatched = 0  # people left alone because nobody in Atrium matched and creating users is off
     ev = options.get("guidExtraValue", "AtriumGuid")
     for u in users:
         if u["guid"] not in claimed:
@@ -179,11 +160,10 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=())
                 actions.append({"kind": "link", "peopleId": pid, "guid": u["guid"]})
             else:
                 if not options.get("createUsers"):
-                    close = suggest_users(want, [c for c in users if c["guid"] not in claimed and c["guid"] not in adopted])
-                    hint = ("Closest unlinked Atrium users: " + "; ".join(describe_user(c) for c in close) + "."
-                            if close else "No unlinked Atrium user looks close.")
+                    unmatched += 1
                     warnings.append("{} has no matching Atrium user, and creating users is turned off (createUsers).  "
-                                    "{}  {}".format(describe_person(pid, want), hint, by_hand))
+                                    "{}  The Atrium users nobody is linked to are listed at the end.".format(
+                                        describe_person(pid, want), by_hand))
                     continue
                 levels = _unique(want["levels"])
                 if len(levels) > ACCESS_LEVEL_SLOTS:
@@ -222,6 +202,13 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=())
             changes["enabled"] = False
         if changes:
             actions.append({"kind": "update", "peopleId": pid, "userId": u["id"], "changes": changes})
+
+    if unmatched:
+        # Once, not once per person: the Atrium users nobody is linked to, so the right one can be picked by name.
+        free = sorted((u for u in users if u["guid"] not in claimed and u["guid"] not in adopted),
+                      key=lambda u: (_plain(u["last_name"]), _plain(u["first_name"])))
+        warnings.append("Atrium users nobody is linked to ({}), for linking by hand: {}.".format(
+            len(free), "; ".join(describe_user(u) for u in free) or "none"))
 
     return actions, warnings
 
