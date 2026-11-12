@@ -194,6 +194,25 @@ class PlannerTests(unittest.TestCase):
         self.assertIn({"kind": "link", "peopleId": 1, "guid": "G10"}, acts)
         self.assertEqual([u["guid"] for u in report["unlinked_users"]], ["G11"])
 
+    def test_the_unlinked_users_leave_out_disabled_ones_by_default(self):
+        users = [user(10, "Ann", "Lee"), user(11, "Old", "Hand", enabled=False)]
+        report = {}
+        S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off(), report=report)
+        self.assertEqual([u["guid"] for u in report["unlinked_users"]], ["G10"])
+
+    def test_the_unlinked_users_include_disabled_ones_if_the_option_is_off(self):
+        users = [user(10, "Ann", "Lee"), user(11, "Old", "Hand", enabled=False)]
+        report = {}
+        S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off(ignoreDisabledUsers=False),
+                    report=report)
+        self.assertEqual([u["guid"] for u in report["unlinked_users"]], ["G11", "G10"])
+
+    def test_an_empty_report_is_still_made_when_only_disabled_users_are_unlinked(self):
+        users = [user(11, "Old", "Hand", enabled=False)]
+        report = {}
+        S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off(), report=report)
+        self.assertEqual(report["unlinked_users"], [])
+
     def test_there_is_no_report_when_nobody_was_left_unmatched(self):
         report = {}
         warn = S.plan_sync(self.q(1, [7]), [user(10, "Ann", "Lee")], {1: "G10"}, {7}, self.off(), report=report)[1]

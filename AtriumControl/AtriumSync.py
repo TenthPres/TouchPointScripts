@@ -3,7 +3,7 @@
 # Description: Keep Atrium users and their access levels in line with TouchPoint searches and status flags.
 # Updates from: GitHub/TenthPres/TouchPointScripts/AtriumControl/AtriumSync.py
 # Depends on: AtriumLib.py
-# Version: 0.2.9
+# Version: 0.3.0
 # License: AGPL-3.0
 # Author: James at Tenth
 # Editable: False
@@ -92,8 +92,8 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
     links:          {peopleId(int): guid} as read from the Extra Value
     managed_levels: set of access level ids that rules control
     empty_levels:   access level ids whose rule matched nobody (a renamed saved search looks just like that)
-    report:         optional dict; if someone is left unmatched, report["unlinked_users"] gets the Atrium users nobody
-                    is linked to, sorted by surname then first name
+    report:         optional dict; if someone is left unmatched, report["unlinked_users"] gets the enabled Atrium users
+                    nobody is linked to (all of them if ignoreDisabledUsers is off), by surname then first name
     returns (actions, warnings)
 
     Actions are dicts with a "kind" of: create, link, update.  "update" carries only the changed fields.  The GUID,
@@ -224,8 +224,12 @@ def plan_sync(qualified, users, links, managed_levels, options, empty_levels=(),
 
     if unmatched and report is not None:
         # Once, not once per person: the Atrium users nobody is linked to, so the right one can be picked by name.
-        report["unlinked_users"] = sorted((u for u in users if u["guid"] not in claimed and u["guid"] not in adopted),
-                                          key=lambda u: (_plain(u["last_name"]), _plain(u["first_name"])))
+        # Disabled users are left out (ignoreDisabledUsers), since they are mostly people long gone from the list.
+        hide_disabled = options.get("ignoreDisabledUsers", True)
+        report["unlinked_users"] = sorted(
+            (u for u in users if u["guid"] not in claimed and u["guid"] not in adopted
+             and (u["enabled"] or not hide_disabled)),
+            key=lambda u: (_plain(u["last_name"]), _plain(u["first_name"])))
 
     return actions, warnings
 
