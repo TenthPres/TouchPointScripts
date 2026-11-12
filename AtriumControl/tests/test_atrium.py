@@ -1,0 +1,1165 @@
+"""
+Offline tests for AtriumLib and the AtriumSync planner.  Run from AtriumControl/:  python -m unittest discover tests
+
+Nothing here touches a controller.  A live read-only check lives in tools/atrium_probe.py.
+"""
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import AtriumLib as L  # noqa: E402
+import AtriumSync as S  # noqa: E402
+import AtriumScheduleSync as SS  # noqa: E402
+import datetime  # noqa: E402
+import AtriumControl as AC  # noqa: E402
+
+
+def user(uid, first, last, levels=(), enabled=True, guid=None):
+    return {"id": uid, "guid": guid or "G{}".format(uid), "first_name": first, "last_name": last,
+            "name": first + " " + last, "enabled": enabled, "activation": 0, "expiration": None,
+            "access_levels": list(levels)}
+
+
+OPTS = {"linkByName": False, "createUsers": True, "syncNames": True, "disableWhenNoAccess": True,
+        "allowEmptyRun": False}
+
+
+class CryptoTests(unittest.TestCase):
+    def test_round_trip(self):
+        key = "0123456789ABCDEF0123456789ABCDEF"
+        body = "<SDK>café 'quoted' &amp;</SDK>".encode("ascii", "xmlcharrefreplace").decode("ascii")
+        self.assertEqual(L.decrypt_body(key, L.encrypt_body(key, body)), body)
+
+    def test_bad_checksum_is_rejected(self):
+        key = "K" * 32
+        enc = L.encrypt_body(key, "hello")
+        self.assertIsNone(L.decrypt_body(key, enc[:-4] + "0000"))
+
+    def test_plain_xml_passes_through(self):
+        self.assertEqual(L.decrypt_body("k", "<a/>"), "<a/>")
+
+    def test_known_vector(self):
+        # RC4("Key", "Plaintext") from the published RC4 test vectors.
+        self.assertEqual(L.rc4_hex("Key", "Plaintext"), "BBF316E8D940AF0AD3")
+
+
+class RequestTests(unittest.TestCase):
+    def test_read_request_matches_captured_format(self):
+        xml = L.AtriumClient.build_request("REC", 7, [("cmd", "read"), ("sernum", "00009F90"), ("type", "user"),
+                                                      ("id", 304), ("rec", "cfg")])
+        self.assertEqual(xml, "<?xml version=\"1.0\" encoding=\"utf-8\"?><SDK xmlns='https://www.cdvi.ca/'><RECORDS>"
+                              "<REC trans_id='7' cmd='read' sernum='00009F90' type='user' id='304' rec='cfg'></REC>"
+                              "</RECORDS></SDK>")
+
+    def test_values_are_escaped_and_ascii(self):
+        xml = L.AtriumClient.build_request("REC", 1, [("cmd", "write")], [("label3", "O'Brien <&> é")])
+        self.assertIn("label3='O&apos;Brien &lt;&amp;&gt; &#233;'", xml)
+        xml.encode("ascii")
+
+    def test_user_fields_only_includes_what_was_asked(self):
+        self.assertEqual(L.user_fields(first_name="Ann"), {"label3": "Ann"})
+        f = L.user_fields(access_levels=[7, 3])
+        self.assertEqual([f["word24_{}".format(i)] for i in range(5)], [7, 3, 65535, 65535, 65535])
+        self.assertNotIn("label3", f)
+
+    def test_too_many_levels_refused(self):
+        with self.assertRaises(L.AtriumError):
+            L.user_fields(access_levels=[1, 2, 3, 4, 5, 6])
+
+    def test_names_are_folded_to_ascii(self):
+        self.assertEqual(L.ascii_name("José Muñoz"), "Jose Munoz")
+
+    def test_parse_user(self):
+        u = L.parse_user({"id": "9", "guid2": "AB", "label3": "A", "label4": "B", "valid": "1",
+                          "utc_time22": "6AE7D280", "utc_time23": "FFFFFFFF", "word24_0": "7", "word24_1": "65535",
+                          "word24_2": "3", "word24_3": "65535", "word24_4": "65535"})
+        self.assertEqual((u["access_levels"], u["expiration"], u["enabled"]), ([7, 3], None, True))
+
+    def test_parse_user_reports_which_option_flags_are_set(self):
+        # The flag pattern of a live user who can log in to Atrium (no access levels), and of an ordinary cardholder.
+        login_user = {"id": "247", "valid": "1", "protect": "0", "bit5": "1", "bit6": "0", "bit15": "0", "bit18": "1",
+                      "bit20": "0", "word24_0": "65535"}
+        ordinary = {"id": "3", "valid": "1", "bit5": "0", "bit6": "0", "bit15": "0", "bit18": "0", "bit20": "0",
+                    "word24_0": "1"}
+        self.assertEqual(L.parse_user(login_user)["options"], [5, 18])
+        self.assertEqual(L.parse_user(ordinary)["options"], [])
+        self.assertEqual(L.parse_user({"id": "1"})["options"], [])
+
+    def test_only_option_bits_five_to_twenty_count(self):
+        u = L.parse_user({"id": "1", "bit4": "1", "bit21": "1", "word21": "1", "bit5": "1", "bit20": "1", "bit100": "1"})
+        self.assertEqual(u["options"], [5, 20])
+
+    def test_dangerous_commands_need_confirmation(self):
+        c = L.AtriumClient("http://x", "u", "p", transport=None)
+        for call in (lambda: c.start_lockdown(), lambda: c.stop_lockdown(), lambda: c.momentary_unlock("S", 1, 5),
+                     lambda: c.momentary_unlock("S", 1, 5, confirm="yes")):
+            with self.assertRaises(L.AtriumError):
+                call()
+
+    def test_unlock_duration_is_bounded(self):
+        c = L.AtriumClient("http://x", "u", "p", transport=None)
+        for secs in (0, 301, -1):
+            with self.assertRaises(L.AtriumError):
+                c.momentary_unlock("S", 1, secs, confirm=True)
+
+    def test_wireless_lock_flags(self):
+        lock = L.parse_wireless_lock("S", 1, "NDE", {"byte0": "5", "byte1": "128", "bit5": "1"},
+                                     {"bit1": "1", "bit2": "0", "bit5": "0"})
+        self.assertTrue(lock["battery_low"] and lock["online"])
+        self.assertFalse(lock["battery_critical"] or lock["rf_loss"])
+        self.assertEqual(lock["volts"], 5.5)
+
+
+class PlannerTests(unittest.TestCase):
+    def q(self, pid, levels, first="Ann", last="Lee"):
+        return {pid: {"first": first, "last": last, "levels": levels}}
+
+    def named(self, pid, first, nick, last="Gibson", levels=(7,)):
+        return {pid: {"first": first, "nick": nick, "last": last, "levels": list(levels)}}
+
+    def test_atrium_holds_the_nickname_when_there_is_one_else_the_first_name(self):
+        self.assertEqual(S.atrium_first({"first": "Jonathan", "nick": "Jonny"}), "Jonny")
+        self.assertEqual(S.atrium_first({"first": "Ann", "nick": ""}), "Ann")
+        self.assertEqual(S.atrium_first({"first": "Ann", "nick": None}), "Ann")
+        self.assertEqual(S.atrium_first({"first": "Ann"}), "Ann")
+
+    def test_a_formal_name_in_atrium_is_found_and_renamed_to_the_nickname(self):
+        users = [user(10, "Jonathan", "Gibson")]
+        opts = dict(OPTS, linkByName=True)
+        acts, warn = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
+        self.assertEqual([a["kind"] for a in acts], ["link", "update"])
+        self.assertEqual(acts[0]["guid"], "G10")
+        self.assertEqual(acts[1]["changes"]["first_name"], "Jonny")
+        self.assertEqual(warn, [])
+
+    def test_a_nickname_already_in_atrium_is_found_and_needs_no_rename(self):
+        users = [user(10, "Jonny", "Gibson", levels=[7])]
+        opts = dict(OPTS, linkByName=True)
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
+        self.assertEqual(acts, [{"kind": "link", "peopleId": 1, "guid": "G10"}])
+
+    def test_a_linked_user_already_under_the_nickname_is_left_alone(self):
+        users = [user(10, "Jonny", "Gibson", levels=[7])]
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [])
+
+    def test_a_linked_user_under_the_first_name_is_renamed_to_the_nickname(self):
+        users = [user(10, "Jonathan", "Gibson", levels=[7])]
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10,
+                                 "changes": {"first_name": "Jonny", "last_name": "Gibson"}}])
+
+    def test_a_person_without_a_nickname_keeps_their_first_name(self):
+        users = [user(10, "Ann", "Lee", levels=[7])]
+        acts, _ = S.plan_sync(self.named(1, "Ann", "", last="Lee"), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [])
+
+    def test_renaming_can_be_turned_off(self):
+        users = [user(10, "Jonathan", "Gibson", levels=[7])]
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {1: "G10"}, {7}, dict(OPTS, syncNames=False))
+        self.assertEqual(acts, [])
+
+    def test_without_linkbyname_a_nickname_match_warns_and_creates_nothing(self):
+        users = [user(10, "Jonny", "Gibson")]
+        acts, warn = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, OPTS)
+        self.assertEqual(acts, [])
+        self.assertEqual(len(warn), 1)
+
+    def test_the_nickname_wins_over_the_first_name_when_both_are_in_atrium(self):
+        users = [user(10, "Jonathan", "Gibson"), user(11, "Jonny", "Gibson")]
+        opts = dict(OPTS, linkByName=True)
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), users, {}, {7}, opts)
+        self.assertEqual(acts[0], {"kind": "link", "peopleId": 1, "guid": "G11"})
+
+    def test_a_person_with_no_match_is_created_under_their_nickname(self):
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", "Jonny"), [], {}, {7}, OPTS)
+        self.assertEqual(acts[0]["first"], "Jonny")
+
+    def test_a_person_with_no_nickname_is_created_under_their_first_name(self):
+        acts, _ = S.plan_sync(self.named(1, "Jonathan", ""), [], {}, {7}, OPTS)
+        self.assertEqual(acts[0]["first"], "Jonathan")
+
+    def test_a_rule_that_matches_nobody_does_not_strip_the_people_holding_its_level(self):
+        # e.g. a saved search that was renamed or deleted: level 3 is still held by Ann, but nobody qualifies for it
+        users = [user(10, "Ann", "Lee", levels=[3]), user(11, "Bo", "Ray", levels=[0])]
+        qualified = {2: {"first": "Bo", "last": "Ray", "levels": [0]}}
+        acts, warn = S.plan_sync(qualified, users, {1: "G10", 2: "G11"}, {0, 3}, OPTS, empty_levels={3})
+        self.assertEqual(acts, [])
+        self.assertEqual(len(warn), 1)
+        self.assertIn("matched nobody", warn[0])
+
+    def test_an_empty_rule_is_fine_when_nobody_holds_its_level(self):
+        users = [user(11, "Bo", "Ray", levels=[0])]
+        qualified = {2: {"first": "Bo", "last": "Ray", "levels": [0]}}
+        acts, warn = S.plan_sync(qualified, users, {2: "G11"}, {0, 3}, OPTS, empty_levels={3})
+        self.assertEqual((acts, warn), ([], []))
+
+    def test_allowemptyrun_lets_an_empty_rule_revoke(self):
+        users = [user(10, "Ann", "Lee", levels=[3]), user(11, "Bo", "Ray", levels=[0])]
+        qualified = {2: {"first": "Bo", "last": "Ray", "levels": [0]}}
+        acts, _ = S.plan_sync(qualified, users, {1: "G10", 2: "G11"}, {0, 3}, dict(OPTS, allowEmptyRun=True),
+                              empty_levels={3})
+        self.assertEqual([a["peopleId"] for a in acts], [1])
+
+    def off(self, **kw):
+        return dict(OPTS, createUsers=False, **kw)
+
+    def test_an_unmatched_person_is_named_and_the_unlinked_atrium_users_are_reported_once(self):
+        users = [user(10, "Johnathan", "Smith"), user(12, "Zed", "Smith"), user(13, "Ann", "Other")]
+        qualified = dict(self.named(7, "Jonathan", "Jon", last="Smith"))
+        qualified.update(self.named(8, "Kay", "Kay", last="Nobody"))
+        report = {}
+        acts, warn = S.plan_sync(qualified, users, {}, {7}, self.off(), report=report)
+        self.assertEqual(acts, [])
+        self.assertEqual(len(warn), 2)  # one per person; the Atrium users go in the report, once
+        self.assertIn("Person 7 (Jonathan Smith, goes by Jon)", warn[0])
+        self.assertEqual(warn[0], "Person 7 (Jonathan Smith, goes by Jon) has no matching Atrium user, and creating "
+                                  "users is turned off (createUsers).")
+        self.assertNotIn("link by hand", warn[0])
+        self.assertNotIn("table below", warn[0])
+        self.assertIn("Person 8 (Kay Nobody)", warn[1])
+        self.assertEqual(sorted(u["guid"] for u in report["unlinked_users"]), ["G10", "G12", "G13"])
+
+    def test_the_unlinked_users_are_sorted_by_surname_then_first_name(self):
+        users = [user(1, "Zed", "Young"), user(2, "Amy", "Young"), user(3, "Bob", "Adams")]
+        report = {}
+        S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off(), report=report)
+        self.assertEqual([u["name"] for u in report["unlinked_users"]], ["Bob Adams", "Amy Young", "Zed Young"])
+
+    def test_the_unlinked_users_leave_out_those_already_linked_or_adopted(self):
+        users = [user(10, "Jonathan", "Smith"), user(11, "Other", "Person"), user(12, "Linked", "Already")]
+        qualified = dict(self.named(1, "Jonathan", "Jon", last="Smith"))
+        qualified.update(self.named(2, "No", "No", last="Match"))
+        report = {}
+        acts, _ = S.plan_sync(qualified, users, {99: "G12"}, {7}, self.off(linkByName=True), report=report)
+        self.assertIn({"kind": "link", "peopleId": 1, "guid": "G10"}, acts)
+        self.assertEqual([u["guid"] for u in report["unlinked_users"]], ["G11"])
+
+    def test_the_unlinked_users_leave_out_disabled_ones_by_default(self):
+        users = [user(10, "Ann", "Lee"), user(11, "Old", "Hand", enabled=False)]
+        report = {}
+        S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off(), report=report)
+        self.assertEqual([u["guid"] for u in report["unlinked_users"]], ["G10"])
+
+    def test_the_unlinked_users_include_disabled_ones_if_the_option_is_off(self):
+        users = [user(10, "Ann", "Lee"), user(11, "Old", "Hand", enabled=False)]
+        report = {}
+        S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off(ignoreDisabledUsers=False),
+                    report=report)
+        self.assertEqual([u["guid"] for u in report["unlinked_users"]], ["G11", "G10"])
+
+    def test_an_empty_report_is_still_made_when_only_disabled_users_are_unlinked(self):
+        users = [user(11, "Old", "Hand", enabled=False)]
+        report = {}
+        S.plan_sync(self.named(7, "Q", "Q", last="None"), users, {}, {7}, self.off(), report=report)
+        self.assertEqual(report["unlinked_users"], [])
+
+    def test_there_is_no_report_when_nobody_was_left_unmatched(self):
+        report = {}
+        warn = S.plan_sync(self.q(1, [7]), [user(10, "Ann", "Lee")], {1: "G10"}, {7}, self.off(), report=report)[1]
+        self.assertEqual(warn, [])
+        self.assertEqual(report, {})
+
+    def test_the_planner_works_without_a_report(self):
+        acts, warn = S.plan_sync(self.named(7, "Jonathan", "Jon", last="Smith"), [], {}, {7}, self.off())
+        self.assertEqual((acts, len(warn)), ([], 1))
+
+    def test_the_unlinked_users_come_out_as_an_html_table(self):
+        users = [user(10, "Ann", "Lee"), user(11, "Bo <b>", "R&D")]
+        html = S.unlinked_users_table(users)
+        self.assertIn("<table", html)
+        self.assertIn("<th>Atrium user</th><th>GUID</th>", html)
+        self.assertIn("<tr><td>Ann Lee</td><td><code>G10</code></td></tr>", html)
+        self.assertIn("(2)", html)
+        self.assertEqual(html.count("<tr>"), 3)  # header row plus one per user
+        self.assertIn("Bo &lt;b&gt; R&amp;D", html)  # names can't inject markup
+        self.assertNotIn("<b>", html)
+
+    def test_an_empty_table_still_says_so(self):
+        html = S.unlinked_users_table([])
+        self.assertIn("(0)", html)
+        self.assertEqual(html.count("<tr>"), 1)
+
+    def test_a_nickname_is_only_mentioned_when_it_differs(self):
+        _, warn = S.plan_sync(self.named(7, "Ann", "Ann", last="Lee"), [], {}, {7}, self.off())
+        self.assertIn("Person 7 (Ann Lee)", warn[0])
+        self.assertNotIn("goes by", warn[0])
+
+    def test_a_same_name_warning_gives_the_atrium_name_and_guid(self):
+        users = [user(10, "Ann", "Lee")]
+        _, warn = S.plan_sync(self.q(1, [7]), users, {}, {7}, dict(OPTS, linkByName=False))
+        self.assertIn("Ann Lee (GUID G10)", warn[0])
+        self.assertNotIn("link by hand", warn[0])
+
+    def test_an_ambiguous_match_lists_every_candidate(self):
+        users = [user(10, "Ann", "Lee"), user(11, "Ann", "Lee")]
+        acts, warn = S.plan_sync(self.q(1, [7]), users, {}, {7}, dict(OPTS, linkByName=True))
+        self.assertEqual(acts, [])
+        self.assertIn("GUID G10", warn[0])
+        self.assertIn("GUID G11", warn[0])
+
+    def test_creation_can_be_turned_off(self):
+        acts, warn = S.plan_sync(self.q(1, [7]), [], {}, {7}, dict(OPTS, createUsers=False))
+        self.assertEqual(acts, [])
+        self.assertEqual(len(warn), 1)
+        self.assertIn("createUsers", warn[0])
+
+    def test_creation_is_off_by_default(self):
+        self.assertFalse(S.DEFAULT_CONFIG["createUsers"])
+        acts, _ = S.plan_sync(self.q(1, [7]), [], {}, {7}, dict(S.DEFAULT_CONFIG))
+        self.assertEqual(acts, [])
+
+    def test_turning_creation_off_still_links_updates_and_disables(self):
+        users = [user(10, "Ann", "Lee", levels=[]), user(11, "Bo", "Ray", levels=[7])]
+        opts = dict(OPTS, createUsers=False, linkByName=True)
+        qualified = {1: {"first": "Ann", "last": "Lee", "levels": [7]},   # matched by name: link, then add the level
+                     3: {"first": "Cy", "last": "New", "levels": [7]}}    # nobody in Atrium: skipped
+        acts, warn = S.plan_sync(qualified, users, {2: "G11"}, {7}, opts)  # person 2 is linked but no longer qualifies
+        self.assertEqual(sorted(a["kind"] for a in acts), ["link", "update", "update"])
+        self.assertNotIn("create", [a["kind"] for a in acts])
+        self.assertEqual(len(warn), 1)  # person 3
+
+    def test_new_person_is_created_with_levels(self):
+        acts, warn = S.plan_sync(self.q(1, [7]), [], {}, {7}, OPTS)
+        self.assertEqual([a["kind"] for a in acts], ["create"])
+        self.assertEqual(acts[0]["levels"], [7])
+
+    def test_unmanaged_levels_are_preserved(self):
+        users = [user(10, "Ann", "Lee", levels=[3])]
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts[0]["changes"]["access_levels"], [3, 7])
+
+    def test_no_change_means_no_action(self):
+        users = [user(10, "Ann", "Lee", levels=[7])]
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [])
+
+    def test_removed_person_loses_managed_levels_and_is_disabled(self):
+        users = [user(10, "Ann", "Lee", levels=[3, 7]), user(11, "Bo", "Ray", levels=[7])]
+        links = {1: "G10", 2: "G11"}
+        acts, _ = S.plan_sync(self.q(2, [7], "Bo", "Ray"), users, links, {7}, OPTS)
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [3]}}])
+
+    def test_removed_person_with_nothing_left_is_disabled_not_deleted(self):
+        users = [user(10, "Ann", "Lee", levels=[7]), user(11, "Bo", "Ray", levels=[7])]
+        links = {1: "G10", 2: "G11"}
+        acts, _ = S.plan_sync(self.q(2, [7], "Bo", "Ray"), users, links, {7}, OPTS)
+        self.assertEqual(acts[0]["changes"], {"access_levels": [], "enabled": False})
+        self.assertNotIn("delete", [a["kind"] for a in acts])
+
+    # --- a rule that gives its level to every linked, enabled user (e.g. a common code) -------------------------------
+
+    def universal(self, users, links, qualified=None, **kw):
+        qualified = qualified if qualified is not None else {9: {"first": "Zed", "last": "Z", "levels": [7]}}
+        return S.plan_sync(qualified, users, links, {7}, self.off(**kw), universal_levels=[3])
+
+    def test_a_qualifying_user_gets_their_groups_levels_and_the_universal_one(self):
+        users = [user(10, "Ann", "Lee", levels=[])]
+        q = {1: {"first": "Ann", "last": "Lee", "levels": [7]}}
+        acts, _ = self.universal(users, {1: "G10"}, q)
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [7, 3]}}])
+
+    def test_a_user_with_everything_already_needs_no_change(self):
+        users = [user(10, "Ann", "Lee", levels=[7, 3])]
+        acts, _ = self.universal(users, {1: "G10"}, {1: {"first": "Ann", "last": "Lee", "levels": [7]}})
+        self.assertEqual(acts, [])
+
+    def test_a_linked_user_in_no_group_but_with_other_levels_keeps_them_and_gets_the_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[7, 5])]   # 5 isn't in any rule
+        acts, _ = self.universal(users, {1: "G10"})
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [5, 3]}}])
+
+    def test_a_linked_user_in_no_group_and_nothing_else_is_disabled_and_loses_the_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[7, 3])]
+        acts, _ = self.universal(users, {1: "G10"})
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10,
+                                 "changes": {"enabled": False, "access_levels": []}}])
+
+    def test_a_user_who_cant_be_disabled_stays_enabled_and_has_the_universal_level(self):
+        login_user = dict(user(10, "Ann", "Lee", levels=[]), options=[5, 18])
+        acts, _ = self.universal([login_user], {1: "G10"})
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [3]}}])
+
+    def test_with_disabling_off_everyone_linked_and_enabled_has_the_universal_level(self):
+        acts, _ = self.universal([user(10, "Ann", "Lee", levels=[])], {1: "G10"}, disableWhenNoAccess=False)
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [3]}}])
+
+    def test_a_disabled_user_is_not_given_the_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        acts, _ = self.universal(users, {1: "G10"}, ignoreDisabledUsers=False)
+        self.assertEqual(acts, [])
+        acts, _ = self.universal(users, {1: "G10"})          # ignored altogether
+        self.assertEqual(acts, [])
+
+    def test_a_disabled_user_whose_person_qualifies_is_enabled_and_given_it(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        q = {1: {"first": "Ann", "last": "Lee", "levels": [7]}}
+        acts, _ = self.universal(users, {1: "G10"}, q)
+        self.assertEqual(acts[0]["changes"], {"access_levels": [7, 3], "enabled": True})
+
+    def test_unlinked_atrium_users_never_get_the_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[]), user(11, "Cy", "Dee", levels=[])]
+        acts, _ = self.universal(users, {2: "G11"}, {2: {"first": "Cy", "last": "Dee", "levels": [7]}})
+        self.assertEqual([a["userId"] for a in acts if a["kind"] == "update"], [11])
+
+    def test_a_new_user_is_created_with_the_universal_level_too(self):
+        acts, _ = S.plan_sync({1: {"first": "Ann", "last": "Lee", "levels": [7]}}, [], {}, {7}, dict(OPTS),
+                              universal_levels=[3])
+        self.assertEqual(acts[0]["levels"], [7, 3])
+
+    def test_the_five_level_limit_still_applies_with_a_universal_level(self):
+        users = [user(10, "Ann", "Lee", levels=[11, 12, 13, 14, 15])]   # five unmanaged levels already
+        acts, warn = self.universal(users, {1: "G10"})
+        self.assertEqual(acts, [])
+        self.assertTrue(any("Truncated" in w for w in warn))   # (the other warning is for the unmatched person 9)
+
+    def test_a_universal_level_is_managed_so_it_can_be_taken_away(self):
+        users = [user(10, "Ann", "Lee", levels=[3])]
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, users, {1: "G10"}, set(),
+                              self.off(), universal_levels=[3])
+        self.assertEqual(acts[0]["changes"], {"enabled": False, "access_levels": []})
+
+    def test_a_rule_is_universal_only_when_it_says_so(self):
+        self.assertTrue(S.is_universal_rule({"name": "Common", "accessLevel": 7, "linkedEnabledUsers": True}))
+        self.assertFalse(S.is_universal_rule({"name": "Staff", "accessLevel": 0, "search": "x"}))
+        self.assertFalse(S.is_universal_rule({"name": "Off", "accessLevel": 7, "linkedEnabledUsers": False}))
+        with self.assertRaises(L.AtriumError):
+            S.is_universal_rule({"name": "Both", "accessLevel": 7, "linkedEnabledUsers": True, "search": "x"})
+        with self.assertRaises(L.AtriumError):
+            S.is_universal_rule({"name": "Both", "accessLevel": 7, "linkedEnabledUsers": True, "queryId": GUID})
+
+    def test_a_user_with_option_flags_and_no_levels_is_not_disabled(self):
+        # Linked, enabled, no access levels, but able to log in to Atrium: nothing to remove, and not to be disabled.
+        login_user = dict(user(10, "Ann", "Lee", levels=[]), options=[5, 18])
+        acts, warn = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, [login_user], {1: "G10"}, {7}, self.off())
+        self.assertEqual(acts, [])
+
+    def test_a_user_with_option_flags_still_loses_the_managed_levels_but_stays_enabled(self):
+        login_user = dict(user(10, "Ann", "Lee", levels=[3, 7]), options=[5, 18])
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, [login_user], {1: "G10"}, {7}, self.off())
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": [3]}}])
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}},
+                              [dict(user(10, "Ann", "Lee", levels=[7]), options=[5])], {1: "G10"}, {7}, self.off())
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": []}}])
+
+    def test_a_user_without_option_flags_is_still_disabled(self):
+        ordinary = dict(user(10, "Bo", "Ray", levels=[]), options=[])
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, [ordinary], {1: "G10"}, {7}, self.off())
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"enabled": False}}])
+
+    def test_disabling_users_with_option_flags_can_be_allowed(self):
+        login_user = dict(user(10, "Ann", "Lee", levels=[]), options=[5, 18])
+        acts, _ = S.plan_sync({9: {"first": "Zed", "last": "Z", "levels": [7]}}, [login_user], {1: "G10"}, {7},
+                              self.off(disableUsersWithOptions=True))
+        self.assertEqual(acts[0]["changes"], {"enabled": False})
+
+    def test_users_with_option_flags_are_protected_by_default(self):
+        self.assertFalse(S.DEFAULT_CONFIG["disableUsersWithOptions"])
+
+    def test_disabled_atrium_users_are_ignored_by_default(self):
+        self.assertTrue(S.DEFAULT_CONFIG["ignoreDisabledUsers"])
+
+    def test_a_disabled_linked_person_who_no_longer_qualifies_is_left_alone(self):
+        users = [user(10, "Ann", "Lee", levels=[7], enabled=False), user(11, "Bo", "Ray", levels=[7])]
+        acts, warn = S.plan_sync(self.q(2, [7], "Bo", "Ray"), users, {1: "G10", 2: "G11"}, {7}, OPTS)
+        self.assertEqual((acts, warn), ([], []))
+
+    def test_turning_the_option_off_revokes_from_disabled_users_too(self):
+        users = [user(10, "Ann", "Lee", levels=[7], enabled=False), user(11, "Bo", "Ray", levels=[7])]
+        acts, _ = S.plan_sync(self.q(2, [7], "Bo", "Ray"), users, {1: "G10", 2: "G11"}, {7},
+                              dict(OPTS, ignoreDisabledUsers=False))
+        self.assertEqual(acts, [{"kind": "update", "peopleId": 1, "userId": 10, "changes": {"access_levels": []}}])
+
+    def test_a_disabled_user_whose_person_qualifies_is_still_re_enabled(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {1: "G10"}, {7}, dict(OPTS, ignoreDisabledUsers=True))
+        self.assertEqual(acts[0]["changes"], {"access_levels": [7], "enabled": True})
+
+    def test_a_disabled_unlinked_user_matching_a_requested_person_is_adopted_and_enabled(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {}, {7}, dict(OPTS, linkByName=True, ignoreDisabledUsers=True))
+        self.assertEqual([a["kind"] for a in acts], ["link", "update"])
+        self.assertTrue(acts[1]["changes"]["enabled"])
+
+    def test_disabled_users_do_not_trip_the_nobody_qualifies_guard(self):
+        users = [user(10, "Ann", "Lee", levels=[7], enabled=False)]
+        acts, warn = S.plan_sync({}, users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual((acts, warn), ([], []))
+
+    def test_a_disabled_user_holding_an_empty_rules_level_does_not_block_the_run(self):
+        users = [user(10, "Ann", "Lee", levels=[3], enabled=False), user(11, "Bo", "Ray", levels=[0])]
+        qualified = {2: {"first": "Bo", "last": "Ray", "levels": [0]}}
+        acts, warn = S.plan_sync(qualified, users, {1: "G10", 2: "G11"}, {0, 3}, OPTS, empty_levels={3})
+        self.assertEqual((acts, warn), ([], []))
+
+    def test_requalifying_person_is_re_enabled(self):
+        users = [user(10, "Ann", "Lee", levels=[], enabled=False)]
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {1: "G10"}, {7}, OPTS)
+        self.assertTrue(acts[0]["changes"]["enabled"])
+
+    def test_unlinked_atrium_users_are_never_touched(self):
+        users = [user(50, "Zed", "Zee", levels=[7])]
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {}, {7}, OPTS)
+        self.assertEqual([a["kind"] for a in acts], ["create"])  # Zed untouched, Ann created
+
+    def test_same_name_is_not_duplicated_unless_link_by_name(self):
+        users = [user(50, "Ann", "Lee")]
+        acts, warn = S.plan_sync(self.q(1, [7]), users, {}, {7}, OPTS)
+        self.assertEqual(acts, [])
+        self.assertTrue(warn)
+        acts, _ = S.plan_sync(self.q(1, [7]), users, {}, {7}, dict(OPTS, linkByName=True))
+        self.assertEqual([a["kind"] for a in acts], ["link", "update"])
+
+    def test_ambiguous_name_is_skipped(self):
+        users = [user(50, "Ann", "Lee"), user(51, "ann", "LEE")]
+        acts, warn = S.plan_sync(self.q(1, [7]), users, {}, {7}, dict(OPTS, linkByName=True))
+        self.assertEqual(acts, [])
+        self.assertTrue(warn)
+
+    def test_empty_run_refuses_to_revoke_everyone(self):
+        users = [user(10, "Ann", "Lee", levels=[7])]
+        acts, warn = S.plan_sync({}, users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [])
+        self.assertTrue(warn)
+
+    def test_stale_link_is_dropped_and_not_trusted(self):
+        users = [user(10, "Someone", "Else", guid="DIFFERENT")]
+        acts, warn = S.plan_sync(self.q(1, [7]), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual([a["kind"] for a in acts], ["create"])
+        self.assertTrue(warn)
+
+    def test_two_people_claiming_one_atrium_user_are_both_left_alone(self):
+        users = [user(10, "Ann", "Lee", levels=[])]
+        acts, warn = S.plan_sync({1: {"first": "Ann", "last": "Lee", "levels": [7]},
+                                  2: {"first": "Ann", "last": "Lee", "levels": [7]}}, users, {1: "G10", 2: "G10"}, {7}, OPTS)
+        self.assertEqual(acts, [])
+        self.assertTrue(warn)
+
+    def test_claimed_atrium_user_is_never_adopted_by_name(self):
+        users = [user(10, "Ann", "Lee", levels=[7])]
+        acts, _ = S.plan_sync({2: {"first": "Ann", "last": "Lee", "levels": [7]}}, users, {1: "G10"}, {7},
+                              dict(OPTS, linkByName=True))
+        # Person 2 gets a brand-new user rather than person 1's; person 1 (no longer qualifying) loses the level.
+        self.assertEqual([(a["kind"], a["peopleId"]) for a in acts], [("create", 2), ("update", 1)])
+
+    def test_more_than_five_levels_is_truncated_with_warning(self):
+        acts, warn = S.plan_sync(self.q(1, [1, 2, 3, 4, 5, 6]), [], {}, set(range(1, 7)), OPTS)
+        self.assertEqual(len(acts[0]["levels"]), 5)
+        self.assertTrue(warn)
+
+    def test_name_changes_sync(self):
+        users = [user(10, "Ann", "Lee", levels=[7])]
+        acts, _ = S.plan_sync(self.q(1, [7], "Anna", "Lee"), users, {1: "G10"}, {7}, OPTS)
+        self.assertEqual(acts[0]["changes"], {"first_name": "Anna", "last_name": "Lee"})
+
+
+class FakeClient(object):
+    def __init__(self):
+        self.calls = []
+
+    def add_user(self, first, last, access_levels=()):
+        self.calls.append(("add", first, last, list(access_levels)))
+        return 99
+
+    def get_user(self, uid):
+        return {"guid": "NEWGUID"}
+
+    def update_user(self, uid, **changes):
+        self.calls.append(("update", uid, changes))
+        if uid == 13:
+            raise L.AtriumError("boom")
+
+
+class ApplyTests(unittest.TestCase):
+    def test_apply_records_links_and_survives_a_failure(self):
+        links = {}
+        acts = [{"kind": "create", "peopleId": 1, "first": "A", "last": "B", "levels": [7]},
+                {"kind": "update", "peopleId": 2, "userId": 13, "changes": {"enabled": False}},
+                {"kind": "update", "peopleId": 3, "userId": 14, "changes": {"enabled": False}}]
+        res = S.apply_actions(FakeClient(), acts, lambda pid, guid: links.__setitem__(pid, guid))
+        self.assertEqual(links, {1: "NEWGUID"})
+        self.assertEqual([bool(e) for _, e in res], [False, True, False])
+
+    def test_count_writes_ignores_link_bookkeeping(self):
+        self.assertEqual(S.count_writes([{"kind": "link"}, {"kind": "create"}, {"kind": "update"}]), 2)
+
+
+class Person(object):
+    def __init__(self, pid):
+        self.PeopleId = pid
+
+
+class FakeQuery(object):
+    """Stands in for TouchPoint's q: QueryList takes 1000 people by default, like the real one."""
+
+    def __init__(self, people, cap=None):
+        self.people, self.cap, self.limits = people, cap, []
+
+    def QueryCount(self, search):
+        return len(self.people)
+
+    def QueryList(self, search, sort="name", limit=1000, offset=0):
+        self.limits.append(limit)
+        limit = min(limit, self.cap) if self.cap else limit
+        return [Person(p) for p in self.people[offset:offset + limit]]
+
+
+class Row(object):
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class SavedSearchTable(object):
+    """A stand-in for q.QuerySql over TouchPoint's saved search (Query) table."""
+
+    def __init__(self, searches):
+        self.searches, self.sql = searches, []  # {guid: name}
+
+    def QuerySql(self, sql):
+        self.sql.append(sql)
+        if "COUNT(*)" in sql:
+            name = sql.split("name = '")[1].rsplit("'", 1)[0].replace("''", "'")
+            return [Row(N=sum(1 for n in self.searches.values() if n == name))]
+        guid = sql.split("QueryId = '")[1].split("'")[0]
+        return [Row(QueryName=self.searches[guid])] if guid in self.searches else []
+
+
+GUID = "51e3c646-1661-4ee5-aa58-2dec4601f7d5"
+
+
+class RuleSearchTests(unittest.TestCase):
+    def setUp(self):
+        self._q = getattr(S, "q", None)
+
+    def tearDown(self):
+        S.q = self._q
+
+    def test_a_plain_search_or_saved_search_name_passes_straight_through(self):
+        S.q = SavedSearchTable({})
+        self.assertEqual(S.rule_search({"search": "IsMemberOf( Org=61 ) = 1[True]"}), "IsMemberOf( Org=61 ) = 1[True]")
+        self.assertEqual(S.rule_search({"search": "Security: Children & Youth (Access Applied)"}),
+                         "Security: Children & Youth (Access Applied)")
+        self.assertEqual(S.q.sql, [])
+
+    def test_a_query_id_is_looked_up_to_the_searchs_current_name(self):
+        S.q = SavedSearchTable({GUID: "Security: Children & Youth (Access Applied)"})
+        self.assertEqual(S.rule_search({"queryId": GUID.upper()}), "Security: Children & Youth (Access Applied)")
+        S.q = SavedSearchTable({GUID: "Renamed since"})
+        self.assertEqual(S.rule_search({"queryId": GUID}), "Renamed since")
+
+    def test_an_unknown_query_id_is_an_error(self):
+        S.q = SavedSearchTable({})
+        with self.assertRaises(L.AtriumError):
+            S.rule_search({"name": "Kids", "queryId": GUID})
+
+    def test_two_searches_with_one_name_is_an_error(self):
+        S.q = SavedSearchTable({GUID: "Same", "00000000-0000-0000-0000-000000000001": "Same"})
+        with self.assertRaises(L.AtriumError):
+            S.rule_search({"queryId": GUID})
+
+    def test_something_that_is_not_an_id_never_reaches_the_database(self):
+        S.q = SavedSearchTable({})
+        with self.assertRaises(L.AtriumError):
+            S.rule_search({"queryId": "x'; DROP TABLE Query;--"})
+        self.assertEqual(S.q.sql, [])
+
+    def test_a_rule_needs_a_search_or_an_id(self):
+        with self.assertRaises(L.AtriumError):
+            S.rule_search({"name": "Empty"})
+
+    def test_names_with_apostrophes_are_escaped(self):
+        S.q = SavedSearchTable({GUID: "Kids' Church"})
+        self.assertEqual(S.rule_search({"queryId": GUID}), "Kids' Church")
+
+
+class SearchTests(unittest.TestCase):
+    def setUp(self):
+        self._q = getattr(S, "q", None)
+
+    def tearDown(self):
+        S.q = self._q
+
+    def test_a_search_over_a_thousand_people_is_not_truncated(self):
+        S.q = FakeQuery(list(range(1, 2501)))
+        self.assertEqual(S.search_people_ids("anything"), set(range(1, 2501)))
+        self.assertGreaterEqual(S.q.limits[0], 2500)
+
+    def test_an_empty_search_is_empty(self):
+        S.q = FakeQuery([])
+        self.assertEqual(S.search_people_ids("anything"), set())
+
+
+class PeopleDryRunTests(unittest.TestCase):
+    def dry(self, **kw):
+        config = dict(S.DEFAULT_CONFIG)
+        config.update(kw)
+        return S.is_dry_run(config)
+
+    def test_defaults_are_dry(self):
+        self.assertTrue(self.dry())
+
+    def test_shared_dry_run_off_does_not_make_the_people_sync_live(self):
+        self.assertTrue(self.dry(dryRun=False))
+
+    def test_only_both_flags_off_goes_live(self):
+        self.assertFalse(self.dry(dryRun=False, peopleDryRun=False))
+
+    def test_shared_dry_run_on_wins(self):
+        self.assertTrue(self.dry(dryRun=True, peopleDryRun=False))
+
+    def test_a_string_or_missing_value_stays_dry(self):
+        self.assertTrue(self.dry(dryRun=False, peopleDryRun="false"))
+        self.assertTrue(self.dry(dryRun=False, peopleDryRun=None))
+
+    def test_a_partial_result_stops_the_sync(self):
+        S.q = FakeQuery(list(range(1, 2501)), cap=1000)
+        with self.assertRaises(L.AtriumError):
+            S.search_people_ids("anything")
+
+
+class ControlTests(unittest.TestCase):
+    def lock(self, **kw):
+        base = {"serial": "S", "id": 0, "label": "NDE", "online": True, "battery_low": False,
+                "battery_critical": False, "rf_loss": False, "volts": 6.0}
+        base.update(kw)
+        return base
+
+    def test_worst_locks_sort_first(self):
+        res = AC.battery_summary([self.lock(id=0), self.lock(id=1, battery_low=True), self.lock(id=2, battery_critical=True),
+                                  self.lock(id=3, online=False)])
+        self.assertEqual([s for _, s in res], ["CRITICAL", "OFFLINE", "LOW", "OK"])
+
+    def test_door_names_must_be_configured(self):
+        self.assertEqual(AC.resolve_door({"doors": {"Front": {"serial": "S", "id": "2"}}}, "Front"), ("S", 2))
+        with self.assertRaises(L.AtriumError):
+            AC.resolve_door({"doors": {}}, "Front")
+
+    def test_actions_refused_without_exact_confirmation(self):
+        class Boom(object):
+            def __getattr__(self, name):
+                raise AssertionError("must not reach the controller")
+        for confirm in (None, "yes", "Y", True):
+            for action in ("unlock", "lockdown_start", "lockdown_stop"):
+                with self.assertRaises(L.AtriumError):
+                    AC.run_action(Boom(), action, {"doors": {"F": {"serial": "S", "id": 0}}}, "F", 5, confirm)
+
+    def test_unknown_action_refused(self):
+        with self.assertRaises(L.AtriumError):
+            AC.run_action(object(), "explode", {}, None, 5, "YES")
+
+
+D = datetime.datetime
+
+
+class ScheduleTests(unittest.TestCase):
+    START = D(2026, 11, 2)
+
+    def test_windows_are_clipped_merged_and_sorted(self):
+        w = [(D(2026, 11, 2, 10), D(2026, 11, 2, 12)), (D(2026, 11, 2, 9), D(2026, 11, 2, 10, 30)),
+             (D(2026, 11, 1, 23), D(2026, 11, 2, 1)), (D(2026, 11, 8, 23), D(2026, 11, 9, 3))]
+        self.assertEqual(L.normalize_windows(self.START, 7, w), [(0, 3600), (32400, 43200), (7 * 86400 - 3600, 7 * 86400)])
+
+    def test_fields_clear_unused_periods(self):
+        f = L.schedule_fields(self.START, 7, [(D(2026, 11, 2, 1), D(2026, 11, 2, 2))])
+        self.assertEqual((f["dword6_0"], f["dword7_0"], f["dword6_1"], f["dword7_99"]), (3600, 7200, 0, 0))
+        self.assertEqual(f["dword5"], 604800)
+        self.assertEqual(f["utc_time4"], L.epoch_to_hex(L.datetime_to_epoch(self.START)))
+
+    def test_too_many_periods_refused(self):
+        w = [(D(2026, 11, 2) + datetime.timedelta(minutes=30 * i), D(2026, 11, 2) + datetime.timedelta(minutes=30 * i + 10)) for i in range(101)]
+        with self.assertRaises(L.AtriumError):
+            L.schedule_fields(self.START, 7, w)
+
+    def test_round_trip_through_record(self):
+        f = L.schedule_fields(self.START, 7, [(D(2026, 11, 3, 8), D(2026, 11, 3, 9))])
+        rec = dict((k, str(v)) for k, v in f.items())
+        rec.update({"id": "30", "label3": "x", "ro": "0", "protect": "0"})
+        s = L.parse_schedule(rec)
+        self.assertEqual(s["periods"], [(32 * 3600, 33 * 3600)])
+        self.assertEqual(s["start"], self.START)
+
+    def test_unchanged_schedule_needs_no_write_even_after_start_moves(self):
+        yesterday = self.START - datetime.timedelta(days=1)
+        f = L.schedule_fields(yesterday, 7, [(D(2026, 11, 3, 8), D(2026, 11, 3, 9))])
+        rec = dict((k, str(v)) for k, v in f.items())
+        rec.update({"id": "30", "label3": "x", "ro": "0", "protect": "0"})
+        self.assertIsNone(SS.plan_schedule(L.parse_schedule(rec), [(D(2026, 11, 3, 8), D(2026, 11, 3, 9))], self.START, 7))
+
+    def test_changed_schedule_is_planned(self):
+        rec = dict((k, str(v)) for k, v in L.schedule_fields(self.START, 7, []).items())
+        rec.update({"id": "30", "label3": "x", "ro": "0", "protect": "0"})
+        plan = SS.plan_schedule(L.parse_schedule(rec), [(D(2026, 11, 3, 8), D(2026, 11, 3, 9))], self.START, 7)
+        self.assertEqual((plan["add"], plan["remove"]), (1, 0))
+
+    def sched(self, windows, start=None, cycle=7):
+        start = start or self.START
+        rec = dict((k, str(v)) for k, v in L.schedule_fields(start, cycle, windows).items())
+        rec.update({"id": "30", "label3": "x", "ro": "0", "protect": "0"})
+        return L.parse_schedule(rec)
+
+    def test_replace_slice_swaps_only_the_region(self):
+        existing = [(D(2026, 11, 2, 8), D(2026, 11, 2, 18))]
+        out = SS.replace_slice(existing, [(D(2026, 11, 2, 9), D(2026, 11, 2, 10))], D(2026, 11, 2, 12), D(2026, 11, 2, 16))
+        self.assertEqual(sorted(out), [(D(2026, 11, 2, 8), D(2026, 11, 2, 12)), (D(2026, 11, 2, 16), D(2026, 11, 2, 18))])
+
+    def test_near_mode_replaces_slice_and_leaves_everything_else(self):
+        s = self.sched([(D(2026, 11, 2, 8), D(2026, 11, 2, 9)), (D(2026, 11, 2, 13), D(2026, 11, 2, 14)),
+                        (D(2026, 11, 5, 8), D(2026, 11, 5, 9))])
+        now = D(2026, 11, 2, 12)
+        plan, reason = SS.plan_schedule_near(s, [(D(2026, 11, 2, 13), D(2026, 11, 2, 15))], now, 4, 7)
+        self.assertIsNone(reason)
+        got = L.normalize_windows(self.START, 7, plan["raw"])
+        want = L.normalize_windows(self.START, 7, [(D(2026, 11, 2, 8), D(2026, 11, 2, 9)), (D(2026, 11, 2, 13), D(2026, 11, 2, 15)),
+                                                   (D(2026, 11, 5, 8), D(2026, 11, 5, 9))])
+        self.assertEqual(got, want)
+        self.assertEqual(plan["start"], self.START)  # near mode never moves the cycle
+
+    def test_near_mode_drops_a_cancelled_reservation_inside_the_slice(self):
+        s = self.sched([(D(2026, 11, 2, 13), D(2026, 11, 2, 14))])
+        plan, _ = SS.plan_schedule_near(s, [], D(2026, 11, 2, 12), 4, 7)
+        self.assertEqual((plan["add"], plan["remove"], plan["windows"]), (0, 1, 0))
+
+    def test_near_mode_with_nothing_to_change_does_nothing(self):
+        s = self.sched([(D(2026, 11, 2, 13), D(2026, 11, 2, 14))])
+        self.assertEqual(SS.plan_schedule_near(s, [(D(2026, 11, 2, 13), D(2026, 11, 2, 14))], D(2026, 11, 2, 12), 4, 7), (None, None))
+
+    def test_near_mode_defers_to_a_full_run_when_the_cycle_is_stale_or_wrong(self):
+        s = self.sched([], start=D(2026, 10, 20))
+        plan, reason = SS.plan_schedule_near(s, [], D(2026, 11, 2, 12), 4, 7)
+        self.assertIsNone(plan)
+        self.assertIn("stale", reason)
+        plan, reason = SS.plan_schedule_near(self.sched([], cycle=3), [], D(2026, 11, 2, 12), 4, 7)
+        self.assertIsNone(plan)
+        self.assertIn("cycle length", reason)
+
+    def test_near_mode_respects_the_end_of_the_cycle(self):
+        s = self.sched([])
+        now = D(2026, 11, 8, 22)  # 2 h before the cycle ends; a 4 h horizon must be clipped, not spill past it
+        plan, _ = SS.plan_schedule_near(s, [(D(2026, 11, 8, 23), D(2026, 11, 9, 3))], now, 4, 7)
+        self.assertEqual(L.normalize_windows(self.START, 7, plan["raw"]), [(7 * 86400 - 3600, 7 * 86400)])
+
+    def test_builtin_and_protected_schedules_are_refused(self):
+        class C(L.AtriumClient):
+            def read(self, *a):
+                return {"ro": "0", "protect": "0"} if a[3] > 5 else {"ro": "0", "protect": "0"}
+        c = C("http://x", "u", "p", transport=None, master_serial="S")
+        with self.assertRaises(L.AtriumError):
+            c.set_schedule_windows(1, self.START, 7, [])
+
+        class P(L.AtriumClient):
+            def read(self, *a):
+                return {"ro": "0", "protect": "1"}
+        with self.assertRaises(L.AtriumError):
+            P("http://x", "u", "p", transport=None, master_serial="S").set_schedule_windows(30, self.START, 7, [])
+
+
+class AreaWindowTests(unittest.TestCase):
+    DAY = (D(2026, 11, 2), D(2026, 11, 3))
+
+    @staticmethod
+    def row(start, end, child=False, status=1, setup=0, teardown=0):
+        return {"start": start, "end": end, "event_start": start, "event_end": end, "setup": setup,
+                "teardown": teardown, "child": child, "status": status}
+
+    def windows(self, rows, **kw):
+        return SS.area_windows(rows, self.DAY[0], self.DAY[1], **kw)
+
+    def test_ordinary_event_opens_the_door_with_padding(self):
+        rows = [self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 12))]
+        self.assertEqual(self.windows(rows, before=15, after=10), [(D(2026, 11, 2, 9, 45), D(2026, 11, 2, 12, 10))])
+
+    def test_no_events_means_locked_by_default(self):
+        self.assertEqual(self.windows([]), [])
+
+    def test_no_events_means_open_when_default_is_unlocked(self):
+        self.assertEqual(self.windows([], default_is_locked=False), [self.DAY])
+
+    def test_children_event_locks_20_minutes_either_side(self):
+        rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 17), status=None),
+                self.row(D(2026, 11, 2, 12), D(2026, 11, 2, 13), child=True)]
+        self.assertEqual(self.windows(rows), [(D(2026, 11, 2, 9), D(2026, 11, 2, 11, 40)),
+                                              (D(2026, 11, 2, 13, 20), D(2026, 11, 2, 17))])
+
+    def test_longer_setup_and_teardown_win_over_the_buffer(self):
+        rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 17)),
+                self.row(D(2026, 11, 2, 12), D(2026, 11, 2, 13), child=True, setup=45, teardown=10)]
+        self.assertEqual(self.windows(rows), [(D(2026, 11, 2, 9), D(2026, 11, 2, 11, 15)),
+                                              (D(2026, 11, 2, 13, 20), D(2026, 11, 2, 17))])
+
+    def test_buffer_is_configurable(self):
+        rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 17)),
+                self.row(D(2026, 11, 2, 12), D(2026, 11, 2, 13), child=True)]
+        self.assertEqual(self.windows(rows, child_buffer=0), [(D(2026, 11, 2, 9), D(2026, 11, 2, 12)),
+                                                              (D(2026, 11, 2, 13), D(2026, 11, 2, 17))])
+
+    def test_children_event_alone_gives_no_windows_when_locked_by_default(self):
+        self.assertEqual(self.windows([self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), child=True)], before=15, after=15), [])
+
+    def test_unlocked_default_is_open_except_around_children_events(self):
+        rows = [self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), child=True)]
+        self.assertEqual(self.windows(rows, default_is_locked=False),
+                         [(D(2026, 11, 2), D(2026, 11, 2, 9, 40)), (D(2026, 11, 2, 11, 20), D(2026, 11, 3))])
+
+    def test_unapproved_ordinary_event_does_not_open_the_door(self):
+        self.assertEqual(self.windows([self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), status=0)]), [])
+
+    def test_pending_children_event_still_locks(self):
+        rows = [self.row(D(2026, 11, 2, 9), D(2026, 11, 2, 11)),
+                self.row(D(2026, 11, 2, 10), D(2026, 11, 2, 11), child=True, status=0)]
+        self.assertEqual(self.windows(rows, child_buffer=0), [(D(2026, 11, 2, 9), D(2026, 11, 2, 10))])
+
+    def test_sql_matches_bvcms_schema(self):
+        # Meetings has no Canceled column; DidNotMeet is what marks a meeting that didn't happen.
+        for sql in (SS.DIRECT_RESERVATION_SQL, SS.AREA_RESERVATION_SQL):
+            self.assertNotIn("Canceled", sql)
+            self.assertIn("DidNotMeet", sql)
+
+    def test_reservable_id_mappings_read_services_not_rooms(self):
+        # Services are ReservationItems attached to a reservation, not Reservations rows of their own.
+        sql = SS.DIRECT_RESERVATION_SQL
+        self.assertIn("FROM ReservationItems ri", sql)
+        self.assertIn("ri.ReservableId = {rid}", sql)
+        self.assertNotIn("r.ReservableId", sql)
+        self.assertIn("ri.ApprovalStatus", sql)
+
+    def test_display_name_is_never_blank_and_escapes_markup(self):
+        self.assertEqual(SS.display_name("_ Code 01"), "_ Code 01")
+        self.assertEqual(SS.display_name("  Door <A> & B  "), "Door &lt;A&gt; &amp; B")
+        self.assertEqual(SS.display_name(""), "(no name)")
+        self.assertEqual(SS.display_name(None), "(no name)")
+
+
+def table_client(used, total=2000, cap=None, refuse_over=None):
+    """An AtriumClient whose read_range serves a fake record table: ids in `used` are used, the rest free."""
+    client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+    calls = []
+
+    def read_range(serial, obj_type, rec, lo, hi):
+        calls.append((lo, hi))
+        if refuse_over and hi - lo + 1 > refuse_over:
+            raise L.AtriumError("range too wide")
+        if cap:
+            hi = min(hi, lo + cap - 1)
+        return [{"id": str(i), "obj_status": "used" if used(i) else "free"} for i in range(lo, min(hi, total - 1) + 1)]
+
+    client.read_range = read_range
+    return client, calls
+
+
+class RecordWalkTests(unittest.TestCase):
+    def test_walks_in_wide_batches_and_stops_after_an_empty_one(self):
+        client, calls = table_client(lambda i: i < 340)
+        self.assertEqual([int(r["id"]) for r in client.iter_records("user")], list(range(340)))
+        self.assertEqual(calls, [(0, 99), (100, 199), (200, 299), (300, 399), (400, 499)])
+
+    def test_a_small_table_that_never_ends_stops_at_its_own_limit_and_shows_a_sample(self):
+        # What the live controller did to the access level scan: 50 requests and still going.
+        client, calls = table_client(lambda i: True, total=10 ** 6)
+        with self.assertRaises(L.AtriumError) as ctx:
+            list(client.iter_records("access_lvl"))
+        self.assertLessEqual(len(calls), 11)
+        self.assertIn("access_lvl", str(ctx.exception))
+        self.assertIn("obj_status=used", str(ctx.exception))
+        self.assertIn("ids 900-999: 100 rows, 100 used", str(ctx.exception))
+
+    def test_an_error_partway_through_says_which_batches_came_before(self):
+        client, _ = table_client(lambda i: True, total=10 ** 6)
+        real = client.read_range
+
+        def flaky(serial, obj_type, rec, lo, hi):
+            if lo >= 200:
+                raise L.AtriumError("boom")
+            return real(serial, obj_type, rec, lo, hi)
+
+        client.read_range = flaky
+        with self.assertRaises(L.AtriumError) as ctx:
+            list(client.iter_records("user"))
+        self.assertIn("boom", str(ctx.exception))
+        self.assertIn("ids 0-99: 100 rows, 100 used; ids 100-199: 100 rows, 100 used", str(ctx.exception))
+
+    def test_range_reads_that_dont_report_obj_status_fail_fast_with_a_sample(self):
+        client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        calls = []
+
+        def read_range(serial, obj_type, rec, lo, hi):
+            calls.append((lo, hi))
+            return [{"id": str(i), "label3": "L{}".format(i)} for i in range(lo, hi + 1)]
+
+        client.read_range = read_range
+        with self.assertRaises(L.AtriumError) as ctx:
+            list(client.iter_records("access_lvl"))
+        self.assertEqual(len(calls), 1)
+        self.assertIn("label3=L0", str(ctx.exception))
+
+    def test_records_the_controller_refused_are_reported_as_such(self):
+        # What the live controller sent back to the library: error rows, not records.
+        client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        client.read_range = lambda serial, t, rec, lo, hi: [{"id": str(i), "cnt": "0", "res": "err_arp"}
+                                                            for i in range(lo, hi + 1)]
+        with self.assertRaises(L.AtriumError) as ctx:
+            list(client.iter_records("access_lvl"))
+        self.assertIn("refused 100 of 100", str(ctx.exception))
+        self.assertIn("res=err_arp", str(ctx.exception))
+        self.assertIn("controller S", str(ctx.exception))
+
+    def test_rules_with_only_numeric_levels_skip_reading_level_names(self):
+        self.assertFalse(S.rules_need_level_names([{"accessLevel": 3}, {"accessLevel": "12"}]))
+        self.assertTrue(S.rules_need_level_names([{"accessLevel": 3}, {"accessLevel": "Staff"}]))
+        self.assertFalse(S.rules_need_level_names([]))
+
+    def test_falls_back_to_narrow_batches_if_the_controller_refuses_a_wide_range(self):
+        client, calls = table_client(lambda i: i < 60, refuse_over=25)
+        self.assertEqual(len(list(client.iter_records("user"))), 60)
+        self.assertEqual(calls[0], (0, 99))
+        self.assertEqual(calls[1], (0, 24))
+        self.assertEqual(client.batch_ids, L.FALLBACK_BATCH_IDS)
+        self.assertEqual(client.fallback_reason, "range too wide")
+
+    def test_a_controller_that_trims_the_range_does_not_make_it_skip_records(self):
+        client, _ = table_client(lambda i: i < 340, cap=25)
+        self.assertEqual([int(r["id"]) for r in client.iter_records("user")], list(range(340)))
+
+    def test_a_table_that_never_ends_is_an_error(self):
+        client, _ = table_client(lambda i: True, total=10 ** 6)
+        with self.assertRaises(L.AtriumError):
+            list(client.iter_records("user", max_ids=500))
+
+    def test_a_controller_that_ignores_the_range_is_an_error(self):
+        client = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        client.read_range = lambda serial, t, rec, lo, hi: [{"id": str(i), "obj_status": "used"} for i in range(25)]
+        with self.assertRaises(L.AtriumError):
+            list(client.iter_records("user"))
+
+
+LEVELS_PAGE = ('<?xml version="1.0" encoding="utf-8"?><ACC_LVLS><ACC_LVL id="0" lbl="Staff" state="1" />'
+               '<ACC_LVL id="1" lbl="Access Level Always" state="1" /><ACC_LVL id="3" lbl="ChildrenYouth" state="1" />'
+               '<FOOTER per_page="50" cur_page="1" total_items="{}" /></ACC_LVLS>')
+
+
+class AccessLevelListTests(unittest.TestCase):
+    def client(self, total):
+        c = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        calls = []
+
+        def get_xml(path, params=None):
+            calls.append(path)
+            return L.ET.fromstring(LEVELS_PAGE.format(total))
+
+        c.get_xml = get_xml
+        return c, calls
+
+    def test_levels_come_from_the_list_page_in_one_request(self):
+        c, calls = self.client(3)
+        self.assertEqual(c.list_access_levels(), [{"id": 0, "label": "Staff"}, {"id": 1, "label": "Access Level Always"},
+                                                  {"id": 3, "label": "ChildrenYouth"}])
+        self.assertEqual(calls, ["access_levels.xml"])
+
+    def test_a_paged_list_is_an_error_not_a_short_list(self):
+        c, _ = self.client(120)
+        with self.assertRaises(L.AtriumError):
+            c.list_access_levels()
+
+
+class MasterSerialTests(unittest.TestCase):
+    """The first read of a run used to go to controller "None", because the serial is learned at login."""
+
+    def client(self):
+        c = L.AtriumClient("http://x", "u", "p", transport=None)
+        calls = {"logins": 0}
+
+        def authenticate():
+            calls["logins"] += 1
+            c.sid = "SID"
+            c._master_serial = c._master_serial or "00009F90"
+
+        c.authenticate = authenticate
+        return c, calls
+
+    def test_asking_for_the_serial_logs_in_first(self):
+        c, calls = self.client()
+        self.assertEqual(c.master_serial, "00009F90")
+        self.assertEqual(c.master_serial, "00009F90")
+        self.assertEqual(calls["logins"], 1)
+
+    def test_a_serial_given_up_front_needs_no_login(self):
+        c = L.AtriumClient("http://x", "u", "p", transport=None, master_serial="S")
+        c.authenticate = lambda: self.fail("should not log in")
+        self.assertEqual(c.master_serial, "S")
+
+    def test_the_first_schedule_read_goes_to_the_real_controller(self):
+        c, _ = self.client()
+        sent = []
+
+        def sdk(kind, attrs, data=None):
+            sent.append(dict(attrs))
+            return L.ET.fromstring("<REC><DATA id='18' label3='Courtyard' utc_time4='0' dword5='604800'/></REC>")
+
+        c.sdk = sdk
+        schedule = c.get_schedule(18)
+        self.assertEqual(sent[0]["sernum"], "00009F90")
+        self.assertEqual(schedule["label"], "Courtyard")
+
+    def test_the_first_table_scan_goes_to_the_real_controller(self):
+        c, _ = self.client()
+        seen = []
+        c.read_range = lambda serial, t, rec, lo, hi: seen.append(serial) or [
+            {"id": str(i), "obj_status": "free", "res": "ok"} for i in range(lo, hi + 1)]
+        list(c.iter_records("access_lvl"))
+        self.assertEqual(set(seen), {"00009F90"})
+
+
+class TimeBudgetTests(unittest.TestCase):
+    class Clock(object):
+        def __init__(self):
+            self.now = datetime.datetime(2026, 11, 12, 9, 0, 0)
+
+        def __call__(self):
+            return self.now
+
+    def client(self, clock):
+        c = L.AtriumClient("http://x", "u", "p", transport=None, clock=clock)
+        c.transport = lambda method, url, body=None: "ok"
+        return c
+
+    def test_requests_are_counted(self):
+        c = self.client(self.Clock())
+        c._send("GET", "u")
+        c._send("POST", "u", "body")
+        self.assertEqual(c.request_count, 2)
+
+    def test_a_request_past_the_budget_is_refused(self):
+        clock = self.Clock()
+        c = self.client(clock)
+        c.set_time_budget(60)
+        c._send("GET", "u")
+        clock.now += datetime.timedelta(seconds=61)
+        with self.assertRaises(L.AtriumError):
+            c._send("GET", "u")
+        self.assertEqual(c.request_count, 1)
+
+    def test_no_budget_means_no_limit(self):
+        clock = self.Clock()
+        c = self.client(clock)
+        c.set_time_budget(60)
+        c.set_time_budget(None)
+        clock.now += datetime.timedelta(hours=1)
+        self.assertEqual(c._send("GET", "u"), "ok")
+
+    def test_phase_timer_reports_seconds_and_requests(self):
+        clock = self.Clock()
+        c = self.client(clock)
+        timer = S.PhaseTimer(c, clock=clock)
+        c._send("GET", "u")
+        c._send("GET", "u")
+        clock.now += datetime.timedelta(seconds=12.5)
+        timer.mark("levels")
+        c._send("GET", "u")
+        clock.now += datetime.timedelta(seconds=30)
+        timer.mark("users")
+        self.assertEqual(timer.summary(), "levels 12.5s (2 requests); users 30.0s (1 requests).  Total 42.5s.")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,29 @@
+name: Test
+
+on: push
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      # Each script folder that has a tests/ directory of unittest modules is tested from inside that folder.
+      - name: Run tests
+        run: |
+          status=0
+          for dir in */tests; do
+            script=$(dirname "$dir")
+            echo "::group::$script"
+            (cd "$script" && python -m unittest discover tests -v) || status=1
+            echo "::endgroup::"
+          done
+          exit $status

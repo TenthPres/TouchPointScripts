@@ -7,6 +7,10 @@ System we call "MyTenth."
 - [**Assign Shepherd**](AssignShepherd) - This tool allows leaders to be assigned as designated "shepherds" for a family.  
 This shepherd can then be referenced in Tasks or when Counseling situations arise. 
 
+- [**Atrium Control**](AtriumControl) - Integration with a CDVI Atrium access control system: sync people and access
+levels from TouchPoint searches, drive door schedules from room reservations, report wireless lock batteries, and
+momentarily unlock doors or start/stop lockdown from code.  (Work in progress.)
+
 - [**Attendance Redirect**](AttendanceRedirect) - This tool helps get people to the right Registration for Record Family Attendance.
 
 - [**Children's Involvement Rules**](ChildrensInvolvementRules) - When added to your daily batch, this script will make sure any

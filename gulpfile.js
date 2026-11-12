@@ -23,6 +23,11 @@ function buildEverything(cb) {
         .pipe(zip('Pckgd.zip'))
         .pipe(gulp.dest('.Builds'));
 
+	// AtriumControl Only
+	gulp.src(['AtriumControl/*.py', "AtriumControl/keyword"])
+		.pipe(zip('AtriumControl.zip'))
+		.pipe(gulp.dest('.Builds'));
+
 	// SchedulerSyncer Only
 	gulp.src(['SchedulerSyncer/*.py', "SchedulerSyncer/keyword"])
 		.pipe(zip('SchedulerSyncer.zip'))
