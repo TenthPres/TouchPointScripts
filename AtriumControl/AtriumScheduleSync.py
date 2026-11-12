@@ -57,37 +57,37 @@ RESERVATION_LIVE = """
 # reserved on its own: it is a ReservationItems row attached to a room's reservation, which supplies the times.  The
 # item has its own approval status, and the room reservation it hangs on must not be pending or denied either.
 DIRECT_RESERVATION_SQL = """
-    SELECT r.ReservationStart AS WindowStart, r.ReservationEnd AS WindowEnd
-    FROM ReservationItems ri
-        JOIN Reservations r ON ri.ReservationId = r.ReservationId
-        LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
-    WHERE ri.ReservableId = {rid}
-      AND (ri.ApprovalStatus IS NULL OR ri.ApprovalStatus = 1)
-      AND (r.ApprovalStatus IS NULL OR r.ApprovalStatus = 1)
-""" + RESERVATION_LIVE
+                         SELECT r.ReservationStart AS WindowStart, r.ReservationEnd AS WindowEnd
+                         FROM ReservationItems ri
+                                  JOIN Reservations r ON ri.ReservationId = r.ReservationId
+                                  LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
+                         WHERE ri.ReservableId = {rid}
+                           AND (ri.ApprovalStatus IS NULL OR ri.ApprovalStatus = 1)
+                           AND (r.ApprovalStatus IS NULL OR r.ApprovalStatus = 1) \
+                         """ + RESERVATION_LIVE
 
 # An area is the reservable plus everything beneath it.  IsChild marks meetings of involvements whose Involvement Type
 # code is CHILD.  Unlike a plain event, a child event is honoured even while its approval is still pending, because
 # the cautious outcome there is a locked door.
 AREA_RESERVATION_SQL = """
-    WITH Area AS (
-        SELECT ReservableId FROM Reservable WHERE ReservableId = {area}
-        UNION ALL
-        SELECT c.ReservableId FROM Reservable c JOIN Area a ON c.ParentId = a.ReservableId WHERE c.IsDeleted = 0
-    )
-    SELECT r.ReservationStart AS WindowStart, r.ReservationEnd AS WindowEnd,
-           COALESCE(r.MeetingStart, r.ReservationStart) AS EventStart,
-           COALESCE(r.MeetingEnd, r.ReservationEnd) AS EventEnd,
-           COALESCE(r.SetupMinutes, 0) AS SetupMinutes, COALESCE(r.TeardownMinutes, 0) AS TeardownMinutes,
-           CASE WHEN ot.Code = '{child_code}' THEN 1 ELSE 0 END AS IsChild,
-           r.ApprovalStatus AS ApprovalStatus
-    FROM Reservations r
-        JOIN Area ON r.ReservableId = Area.ReservableId
-        LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
-        LEFT JOIN Organizations o ON m.OrganizationId = o.OrganizationId
-        LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
-    WHERE (r.ApprovalStatus IS NULL OR r.ApprovalStatus IN (0, 1))
-""" + RESERVATION_LIVE
+                       WITH Area AS (
+                           SELECT ReservableId FROM Reservable WHERE ReservableId = {area}
+                           UNION ALL
+                       SELECT c.ReservableId FROM Reservable c JOIN Area a ON c.ParentId = a.ReservableId WHERE c.IsDeleted = 0
+                           )
+                       SELECT r.ReservationStart AS WindowStart, r.ReservationEnd AS WindowEnd,
+                              COALESCE(r.MeetingStart, r.ReservationStart) AS EventStart,
+                              COALESCE(r.MeetingEnd, r.ReservationEnd) AS EventEnd,
+                              COALESCE(r.SetupMinutes, 0) AS SetupMinutes, COALESCE(r.TeardownMinutes, 0) AS TeardownMinutes,
+                              CASE WHEN ot.Code = '{child_code}' THEN 1 ELSE 0 END AS IsChild,
+                              r.ApprovalStatus AS ApprovalStatus
+                       FROM Reservations r
+                                JOIN Area ON r.ReservableId = Area.ReservableId
+                                LEFT JOIN Meetings m ON r.MeetingId = m.MeetingId
+                                LEFT JOIN Organizations o ON m.OrganizationId = o.OrganizationId
+                                LEFT JOIN lookup.OrganizationType ot ON o.OrganizationTypeId = ot.Id
+                       WHERE (r.ApprovalStatus IS NULL OR r.ApprovalStatus IN (0, 1)) \
+                       """ + RESERVATION_LIVE
 
 CHILD_INVOLVEMENT_TYPE = "CHILD"
 DEFAULT_CHILD_BUFFER_MINUTES = 20  # how long before and after a children's event its space stays locked, at minimum
