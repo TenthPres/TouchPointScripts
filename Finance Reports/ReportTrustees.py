@@ -214,7 +214,7 @@ if ("Finance" in model.GetPerson(model.UserPeopleId).Users[0].Roles):
             CAST(DATEADD(dd, DATEPART(dd, ContributionDate)*-1+1, ContributionDate) AS Date) as month
         into #GivingHist
         FROM Contribution
-        WHERE ContributionStatusId = 0 AND ContributionTypeId IN (1, 5, 20) AND year(ContributionDate) >= @currYear-3
+        WHERE ContributionStatusId = 0 AND ContributionTypeId NOT IN (6, 99) AND year(ContributionDate) >= @currYear-3
         GROUP BY ContributionTypeId, CAST(DATEADD(dd, DATEPART(dd, ContributionDate)*-1+1, ContributionDate) AS Date)
         ORDER BY Month;
 
@@ -254,7 +254,7 @@ if ("Finance" in model.GetPerson(model.UserPeopleId).Users[0].Roles):
         FROM Contribution c
             JOIN People p ON c.PeopleId = p.PeopleId
             LEFT JOIN lookup.MemberStatus ms ON p.memberStatusId = ms.Id
-        WHERE ContributionStatusId = 0 AND ContributionTypeId IN (1, 5, 20) AND year(ContributionDate) >= @currYear-15
+        WHERE ContributionStatusId = 0 AND ContributionTypeId NOT IN (6, 99) AND year(ContributionDate) >= @currYear-15
         GROUP BY DATEPART(year, ContributionDate), ms.Code
         ORDER BY year;
 
@@ -295,7 +295,7 @@ if ("Finance" in model.GetPerson(model.UserPeopleId).Users[0].Roles):
         FROM Contribution c
             JOIN People p ON c.PeopleId = p.PeopleId
             LEFT JOIN lookup.ResidentCode rc ON p.PrimaryResCode = rc.Id
-        WHERE ContributionStatusId = 0 AND ContributionTypeId IN (1, 5, 20) AND year(ContributionDate) >= @currYear-15
+        WHERE ContributionStatusId = 0 AND ContributionTypeId NOT IN (6, 99) AND year(ContributionDate) >= @currYear-15
         GROUP BY DATEPART(year, ContributionDate), rc.Code
         ORDER BY year;
 
@@ -340,7 +340,7 @@ if ("Finance" in model.GetPerson(model.UserPeopleId).Users[0].Roles):
         FROM Contribution c
             JOIN People p ON c.PeopleId = p.PeopleId
             LEFT JOIN lookup.ResidentCode rc ON p.PrimaryResCode = rc.Id
-        WHERE ContributionStatusId = 0 AND ContributionTypeId IN (1, 5, 20) AND year(ContributionDate) >= @currYear-15
+        WHERE ContributionStatusId = 0 AND ContributionTypeId NOT IN (6, 99) AND year(ContributionDate) >= @currYear-15
         GROUP BY DATEPART(year, ContributionDate), rc.Code
         ORDER BY year;
 
