@@ -163,49 +163,40 @@ if ("Finance" in model.GetPerson(model.UserPeopleId).Users[0].Roles):
 #  Giving by Type  #
 # ################ #
 
+    # The type of a gift is no longer held in Contribution.ContributionTypeId; it is the type of the bundle
+    # the gift was entered in (lookup.BundleHeaderTypes), as used by the Intacct export.  The series are built
+    # from whatever types have gifts, so new bundle types show up without editing this script.
     GivingTrendSql = '''
     DECLARE @startDate AS Date = DATEADD(yy, -1, getdate());
 
-    SELECT  Count(ContributionId) as cnt,
-            sum(ContributionAmount) as amt,
-            ContributionTypeId,
-            CAST(DATEADD(dd, DATEPART(dw, ContributionDate)*-1+1, ContributionDate) AS Date) as Sunday
-        into #GivingStats
-        FROM Contribution
-        WHERE ContributionStatusId = 0 AND ContributionTypeId IN (1, 5, 20) AND ContributionDate >= @startDate
-        GROUP BY ContributionTypeId, CAST(DATEADD(dd, DATEPART(dw, ContributionDate)*-1+1, ContributionDate) AS Date)
-
-
-    SELECT DISTINCT gs.Sunday as date,
-    ca1.amt regAmt, ca1.cnt regCnt,
-    ca5.amt olAmt, ca5.cnt olCnt,
-    ca20.amt stAmt, ca20.cnt stCnt
-        FROM #GivingStats gs
-        OUTER APPLY (
-            SELECT SUM(gs1.amt) as amt, SUM(gs1.cnt) as cnt
-            FROM #GivingStats gs1
-            WHERE gs.Sunday = gs1.Sunday AND 1 = gs1.ContributionTypeId
-        ) as ca1
-        OUTER APPLY (
-            SELECT SUM(gs5.amt) as amt, SUM(gs5.cnt) as cnt
-            FROM #GivingStats gs5
-            WHERE gs.Sunday = gs5.Sunday AND 5 = gs5.ContributionTypeId
-        ) as ca5
-        OUTER APPLY (
-            SELECT SUM(gs20.amt) as amt, SUM(gs20.cnt) as cnt
-            FROM #GivingStats gs20
-            WHERE gs.Sunday = gs20.Sunday AND 20 = gs20.ContributionTypeId
-        ) as ca20
-        ORDER BY gs.Sunday DESC;
-
-    DROP TABLE #GivingStats
+    SELECT  CAST(DATEADD(dd, DATEPART(dw, c.ContributionDate)*-1+1, c.ContributionDate) AS Date) as date,
+            COALESCE(bht.Code, 'Other') as Typ,
+            COUNT(c.ContributionId) as cnt,
+            SUM(c.ContributionAmount) as amt
+        FROM Contribution c
+            LEFT JOIN BundleDetail bd ON bd.ContributionId = c.ContributionId
+            LEFT JOIN BundleHeader bh ON bh.BundleHeaderId = bd.BundleHeaderId
+            LEFT JOIN lookup.BundleHeaderTypes bht ON bht.Id = bh.BundleHeaderTypeId
+        WHERE c.ContributionStatusId = 0 AND c.ContributionTypeId NOT IN (6, 99) AND c.ContributionDate >= @startDate
+        GROUP BY CAST(DATEADD(dd, DATEPART(dw, c.ContributionDate)*-1+1, c.ContributionDate) AS Date), COALESCE(bht.Code, 'Other')
     '''
+    gTypeTotals = {}
+    gWeeks = {}
+    for row in model.SqlListDynamicData(GivingTrendSql):
+        wk = row.date.ToString("yyyy-MM-dd")
+        if wk not in gWeeks:
+            gWeeks[wk] = {}
+        gWeeks[wk][row.Typ] = (row.cnt, row.amt)
+        gTypeTotals[row.Typ] = gTypeTotals.get(row.Typ, 0) + (row.amt or 0)
+
+    gTypes = sorted(gTypeTotals.keys(), key=lambda t: -gTypeTotals[t])
     dTy = []
     dAm = []
-    for row in model.SqlListDynamicData(GivingTrendSql):
-        dTy.append([row.date.ToString("yyyy-MM-dd"), row.regCnt, row.olCnt, row.stCnt])
-        dAm.append([row.date.ToString("yyyy-MM-dd"), row.regAmt, row.olAmt, row.stAmt])
+    for wk in sorted(gWeeks.keys(), reverse=True):
+        dTy.append([wk] + [gWeeks[wk][t][0] if t in gWeeks[wk] else None for t in gTypes])
+        dAm.append([wk] + [gWeeks[wk][t][1] if t in gWeeks[wk] else None for t in gTypes])
 
+    Data.GivingTypeNames = model.JsonSerialize(gTypes)
     Data.GivingTypeTrend = model.JsonSerialize(dTy)
     Data.GivingAmtTrend = model.JsonSerialize(dAm)
 
@@ -555,9 +546,9 @@ template = """
         var data = new google.visualization.DataTable(),
             d = {{{GivingTypeTrend}}};
         data.addColumn('date', 'Date');
-        data.addColumn('number', 'Traditional');
-        data.addColumn('number', 'Online');
-        data.addColumn('number', 'Stock');
+        for (const n of {{{GivingTypeNames}}}) {
+            data.addColumn('number', n);
+        }
         for (const ri in d) {
             d[ri][0] = new Date(d[ri][0]);
         }
@@ -589,9 +580,9 @@ template = """
         var data = new google.visualization.DataTable(),
             d = {{{GivingAmtTrend}}};
         data.addColumn('date', 'Date');
-        data.addColumn('number', 'Traditional');
-        data.addColumn('number', 'Online');
-        data.addColumn('number', 'Stock');
+        for (const n of {{{GivingTypeNames}}}) {
+            data.addColumn('number', n);
+        }
         for (const ri in d) {
             d[ri][0] = new Date(d[ri][0]);
         }
