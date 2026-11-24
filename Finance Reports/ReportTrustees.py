@@ -557,6 +557,7 @@ template = """
             title: 'Numbers of Gifts Received by Type',
             isStacked: true,
             legend: { position: 'bottom' },
+            vAxis: {viewWindow: {min: 0}},
             chartArea: {
                 width: "80%",
                 height: "80%"
@@ -591,7 +592,7 @@ template = """
             title: 'Total Amounts of Gifts Received by Type',
             isStacked: true,
             legend: { position: 'bottom' },
-            vAxis: {format: 'currency'},
+            vAxis: {format: 'currency', viewWindow: {min: 0}},
             chartArea: {
                 width: "80%",
                 height: "80%"
