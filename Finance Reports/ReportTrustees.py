@@ -170,7 +170,7 @@ if ("Finance" in model.GetPerson(model.UserPeopleId).Users[0].Roles):
     DECLARE @startDate AS Date = DATEADD(yy, -1, getdate());
 
     SELECT  CAST(DATEADD(dd, DATEPART(dw, c.ContributionDate)*-1+1, c.ContributionDate) AS Date) as date,
-            COALESCE(bht.Code, 'Other') as Typ,
+            COALESCE(bht.Description, bht.Code, 'Other') as Typ,
             COUNT(c.ContributionId) as cnt,
             SUM(c.ContributionAmount) as amt
         FROM Contribution c
@@ -178,7 +178,7 @@ if ("Finance" in model.GetPerson(model.UserPeopleId).Users[0].Roles):
             LEFT JOIN BundleHeader bh ON bh.BundleHeaderId = bd.BundleHeaderId
             LEFT JOIN lookup.BundleHeaderTypes bht ON bht.Id = bh.BundleHeaderTypeId
         WHERE c.ContributionStatusId = 0 AND c.ContributionTypeId NOT IN (6, 99) AND c.ContributionDate >= @startDate
-        GROUP BY CAST(DATEADD(dd, DATEPART(dw, c.ContributionDate)*-1+1, c.ContributionDate) AS Date), COALESCE(bht.Code, 'Other')
+        GROUP BY CAST(DATEADD(dd, DATEPART(dw, c.ContributionDate)*-1+1, c.ContributionDate) AS Date), COALESCE(bht.Description, bht.Code, 'Other')
     '''
     gTypeTotals = {}
     gWeeks = {}
